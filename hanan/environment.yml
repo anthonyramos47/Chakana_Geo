@@ -1,0 +1,14 @@
+name: hananJ
+chanels:
+  - conda-forge
+dependencies:
+  - python=3.10
+  - numpy
+  - polyscope [install manually]
+  - matplotlib
+  - pandas
+
+# Path: hananLab/requirements.txt
+  #- igl
+  #- splipy 
+  #- geomdl

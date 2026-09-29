@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=77", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "kayviz"
+version = "0.2.0"
+description = "Polyscope-style 3D viewer in the browser: register geometry and build GUIs from Python."
+authors = [{ name = "Anthony Ramos-Cisneros" }]
+license = "GPL-3.0-or-later"
+license-files = ["LICENSE"]
+requires-python = ">=3.9"
+dependencies = [
+    "numpy",
+    "fastapi",
+    "uvicorn[standard]",
+    "requests",
+    "pydantic",
+]
+
+[project.optional-dependencies]
+screenshots = ["pillow"]      # save_grid contact sheets
+test = ["pytest", "httpx"]
+
+[project.scripts]
+kayviz = "kayviz.__main__:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+kayviz = ["static/*", "static/**/*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

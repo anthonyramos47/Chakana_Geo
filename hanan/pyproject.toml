@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=77", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "hanan"
+version = "0.1.0"
+description = "Discrete differential geometry: mesh processing and Gauss-Newton optimization."
+authors = [{ name = "Anthony Ramos-Cisneros" }, { name = "Davide Pellis" }]
+license = "GPL-3.0-or-later"
+license-files = ["LICENSE", "THIRD_PARTY_NOTICES.md"]
+requires-python = ">=3.9"
+dependencies = [
+    "numpy",
+    "scipy",
+    "pandas",
+    "matplotlib",
+    "libigl",
+]
+
+[project.optional-dependencies]
+jax = ["jax", "jaxlib"]       # autodiff objective terms
+fast = ["numba"]              # JIT-compiled objective terms
+test = ["pytest"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

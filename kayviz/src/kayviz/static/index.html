@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Laguerre Mesh Viewer</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { overflow: hidden; background: #1a1a1a; font-family: monospace; }
+    #canvas-container { width: 100vw; height: 100vh; }
+
+    /* Status bar — bottom-left, unobtrusive */
+    #status {
+      position: fixed;
+      bottom: 8px;
+      left: 12px;
+      color: #aaa;
+      font-size: 12px;
+      pointer-events: none;
+      z-index: 10;
+    }
+    #status.error { color: #f88; }
+  </style>
+</head>
+<body>
+  <div id="canvas-container"></div>
+  <div id="status">Connecting…</div>
+
+  <script type="importmap">
+    {
+      "imports": {
+        "three":         "https://cdn.jsdelivr.net/npm/three@0.165.0/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.165.0/examples/jsm/",
+        "lil-gui":       "https://cdn.jsdelivr.net/npm/lil-gui@0.19.2/dist/lil-gui.esm.js",
+        "kayviz/":       "/static/"
+      }
+    }
+  </script>
+  <script type="module" src="/static/main.js"></script>
+  <script type="module" src="/static/app_loader.js"></script>
+</body>
+</html>
