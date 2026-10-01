@@ -176,3 +176,6 @@ cython_debug/
 
 # Example outputs
 examples/*/out/
+
+# Editor settings
+.vscode/
