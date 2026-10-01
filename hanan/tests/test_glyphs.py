@@ -118,6 +118,30 @@ def test_plane_nh():
     assert np.allclose(np.cross(near - c, n), 0.0)                  # center = closest point
 
 
+@pytest.mark.parametrize("normal", _normals())
+def test_plane_covering_covers_the_points(normal):
+    n, h = 2.5 * normal, 0.3                              # non-unit normal on purpose
+    P = RNG.standard_normal((40, 3)) * [3.0, 1.0, 0.2] + [1.0, -2.0, 0.5]
+    V, F = glyphs.plane_covering(n, h, P, margin=0.1)
+    nu = n / np.linalg.norm(n)
+    assert V.shape == (4, 3) and F.tolist() == [[0, 1, 2, 3]] and np.all(np.isfinite(V))
+    assert np.allclose(V @ n + h, 0.0)                    # on the plane
+    face_n = np.cross(V[1] - V[0], V[2] - V[0])
+    assert face_n @ nu > 0                                # oriented along n
+    a, b = V[1] - V[0], V[3] - V[0]                       # rectangle edges
+    assert abs(a @ b) < 1e-9
+    Q = P - ((P @ n + h) / (n @ n))[:, None] * n          # projected points are inside
+    s = (Q - V[0]) @ a / (a @ a)
+    t = (Q - V[0]) @ b / (b @ b)
+    assert np.all((s > 0) & (s < 1) & (t > 0) & (t < 1))
+
+
+def test_plane_covering_single_point():
+    V, _ = glyphs.plane_covering((0, 0, 1), -1.0, [[0.5, 0.5, 3.0]])
+    assert np.all(np.isfinite(V)) and np.allclose(V[:, 2], 1.0)
+    assert np.linalg.norm(V[0] - V[2]) > 0
+
+
 # ── cones ─────────────────────────────────────────────────────────────────────
 
 def test_cone_fan():

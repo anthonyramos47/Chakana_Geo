@@ -18,7 +18,7 @@ from hanan.geometry.utils import circle_3d, read_obj    # everything in one name
 | [`lie`](#lie) | Lie sphere geometry: oriented spheres as points of the Lie quadric, pencils, midpoints, and cyclidic families / envelopes. (11) |
 | [`isotropic_geometry`](#isotropic_geometry) | Isotropic geometry (9) |
 | [`io`](#io) | Colormaps and mesh file I/O (OBJ, OFF). (7) |
-| [`hanan.glyphs`](#glyphs) | Glyphs — mesh data for drawing geometric objects. (12) |
+| [`hanan.glyphs`](#glyphs) | Glyphs — mesh data for drawing geometric objects. (13) |
 | [`mesh`](MESH_API.md) | `Mesh` — half-edge data structure (separate reference) |
 
 Dependency order (no cycles): `algebraic` → `primitives` → `construction`, `measures`, `conical`;
@@ -1141,6 +1141,23 @@ Rectangular patch of the plane through ``point`` with normal ``normal``.
 
 #### `plane(n, h, near=(0.0, 0.0, 0.0), size=(1, 1))`
 Patch of the plane n·x + h = 0, centered at the point of the plane closest to ``near``.
+
+**Returns**
+- V (4, 3), F (1, 4).
+
+#### `plane_covering(n, h, points, margin=0.1)`
+Patch of the plane n·x + h = 0 that covers the projection of ``points`` onto it.
+
+Use it to show a plane at the position and scale of the geometry it belongs to
+(e.g. a mesh), instead of a fixed square around some point. The rectangle is
+aligned with the principal directions of the projected points, extends ``margin``
+(a fraction of its size) beyond them, and its face normal points along ``n``.
+
+**Args**
+- n:      Plane normal (3,), any length.
+- h:      Plane offset.
+- points: (k, 3) points to cover.
+- margin: Relative margin around the projected points (default 0.1).
 
 **Returns**
 - V (4, 3), F (1, 4).

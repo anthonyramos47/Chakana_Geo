@@ -232,6 +232,51 @@ def plane(n, h, near=(0.0, 0.0, 0.0), size=(1, 1)):
     return plane_patch(center, n, size)
 
 
+def plane_covering(n, h, points, margin=0.1):
+    """
+    Patch of the plane n·x + h = 0 that covers the projection of ``points`` onto it.
+
+    Use it to show a plane at the position and scale of the geometry it belongs to
+    (e.g. a mesh), instead of a fixed square around some point. The rectangle is
+    aligned with the principal directions of the projected points, extends ``margin``
+    (a fraction of its size) beyond them, and its face normal points along ``n``.
+
+    Args:
+        n:      Plane normal (3,), any length.
+        h:      Plane offset.
+        points: (k, 3) points to cover.
+        margin: Relative margin around the projected points (default 0.1).
+
+    Returns:
+        V (4, 3), F (1, 4).
+    """
+    n = np.asarray(n, dtype=float)
+    P = np.atleast_2d(np.asarray(points, dtype=float))
+    Q = P - ((P @ n + h) / (n @ n))[:, None] * n           # projections onto the plane
+    c = Q.mean(axis=0)
+    u, v = _basis(n)
+    a, b = u, v
+    if len(Q) >= 2:                                         # principal in-plane directions
+        uv = np.stack([(Q - c) @ u, (Q - c) @ v], axis=1)
+        _, _, Wt = np.linalg.svd(uv, full_matrices=False)
+        a = _unit(Wt[0, 0] * u + Wt[0, 1] * v)
+        b = np.cross(_unit(n), a)
+    sa, sb = (Q - c) @ a, (Q - c) @ b
+    center = c + 0.5 * (sa.max() + sa.min()) * a + 0.5 * (sb.max() + sb.min()) * b
+    ha = 0.5 * (sa.max() - sa.min()) * (1.0 + margin)
+    hb = 0.5 * (sb.max() - sb.min()) * (1.0 + margin)
+    # points on a line (or a single point): make the patch square instead of flat
+    tiny = 1e-6 * max(1.0, np.abs(P).max())
+    if ha <= tiny:
+        ha = hb
+    if hb <= tiny:
+        hb = ha
+    ha, hb = max(ha, tiny), max(hb, tiny)
+    V = np.array([center - ha * a - hb * b, center + ha * a - hb * b,
+                  center + ha * a + hb * b, center - ha * a + hb * b])
+    return V, np.array([[0, 1, 2, 3]])
+
+
 # ── cones ─────────────────────────────────────────────────────────────────────
 
 def cone(apex, axis, half_angle, height, n=32):
