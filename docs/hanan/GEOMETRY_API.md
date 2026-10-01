@@ -13,7 +13,7 @@ from hanan.geometry.utils import circle_3d, read_obj    # everything in one name
 | [`algebraic`](#algebraic) | Algebraic Operations and Vector Utilities (12) |
 | [`primitives`](#primitives) | Points, lines, planes, circles and spheres: distances, projections, reflections, intersections, circle fits, sphere inversion. (20) |
 | [`construction`](#construction) | Building meshes and curves: normalization, primitive solids, subdivision, lofting, offsets, barycentric interpolation, and merging pieces into one mesh. (11) |
-| [`measures`](#measures) | Per-face quality measures: normals, planarity, circularity, circumcircles. (5) |
+| [`measures`](#measures) | Per-face quality measures: normals, planarity, circularity, circumcircles. (8) |
 | [`conical`](#conical) | Cones of revolution and conical meshes: cones tangent to sphere pairs, cone strips, vertex cone axes and curvature spheres of conical meshes. (11) |
 | [`lie`](#lie) | Lie sphere geometry: oriented spheres as points of the Lie quadric, pencils, midpoints, and cyclidic families / envelopes. (11) |
 | [`isotropic_geometry`](#isotropic_geometry) | Isotropic geometry (9) |
@@ -590,6 +590,9 @@ planarity is the maximum absolute distance from any vertex to that plane,
 normalised by the mean edge length of the face.  A value of 0 means
 perfectly planar.
 
+On a folded (self-intersecting) face the Newell normal is unreliable and this value
+can be far too large; `planarity_measure` has no such problem.
+
 **Args**
 - vertices: (V, 3) array of vertex positions.
 - faces:    list of index arrays, one per face (triangles, quads, n-gons).
@@ -617,6 +620,58 @@ Planarity per face: diagonal closest-point gap divided by average edge length.
 
 **Returns**
 - Planarity measure array (F,).
+
+#### `quadruplet_planarity(p1, p2, p3, p4)`
+Planarity error of four consecutive vertices p1, p2, p3, p4 (as in PH-CPF).
+
+Distance between the two diagonal lines p1p3 and p2p4, divided by the average
+diagonal length:
+
+    |<n, p2 - p1>| / (½ (‖p3 - p1‖ + ‖p4 - p2‖)),   n = unit(p31 × p42),
+
+with p_ij = p_i - p_j. It is 0 when the four points are coplanar; parallel diagonals
+(which always lie in one plane) give 0 as well.
+
+**Args**
+- p1, p2, p3, p4: Points (3,).
+
+**Returns**
+- float.
+
+#### `planarity_measure(vertices, faces)`
+Planarity error per face of a polygon mesh (triangles, quads, hexagons, n-gons).
+
+For a d-sided face, the root mean square of `quadruplet_planarity` over its d
+consecutive quadruplets (p_j, p_j+1, p_j+2, p_j+3), indices taken cyclically. The
+value is dimensionless (PH-CPF reports it in percent, i.e. ×100); triangles give 0.
+For a quad it is the distance between its diagonals divided by their average length.
+It uses no face normal, so folded (self-intersecting) faces are measured correctly,
+unlike `face_planarity`.
+
+Reference: K. Pluta, M. Edelstein, A. Vaxman, M. Ben-Chen, "PH-CPF: Planar Hexagonal
+Meshing using Coordinate Power Fields", ACM Trans. Graph. 40(4), Article 156, 2021
+(`planarity_general` in the authors' code, github.com/michaled/PH-CPF).
+
+**Args**
+- vertices: (V, 3) vertex positions.
+- faces:    list of vertex-index lists, one per face.
+
+**Returns**
+- planarity: (F,) array, one value per face.
+
+#### `deviation_from_reference(points, ref_vertices, ref_faces)`
+Deviation of points from a reference mesh M, relative to the size of M.
+
+For each point: its distance to M (closest point on M, polygon faces fan-triangulated)
+divided by the diameter of the bounding box of M.
+
+**Args**
+- points:       (k, 3) points, e.g. the vertices of an optimized mesh.
+- ref_vertices: (V, 3) vertices of M.
+- ref_faces:    list of vertex-index lists of M (any polygons).
+
+**Returns**
+- deviation: (k,) array.
 
 #### `compute_circumcircles_quad_mesh(vertices, faces)`
 Compute circumcenters, normals, and radii for each face of a quad mesh.

@@ -135,3 +135,62 @@ def test_quad_grid_vertex_areas():
     np.testing.assert_allclose(A[[1, 3, 5, 7]], 0.125)
     np.testing.assert_allclose(A[4], 0.25)
     np.testing.assert_allclose(A.sum(), m.face_areas().sum())
+
+
+# ── PH-CPF planarity measure and deviation from a reference mesh ─────────────
+
+def _phcpf_planarity_general(V, F):
+    """Line-by-line port of planarity_general in the PH-CPF code (MESHP.m), in percent."""
+    out = np.zeros(len(F))
+    for fid, f in enumerate(F):
+        dim = len(f)
+        quad = np.zeros(dim)
+        for d in range(dim):
+            v1, v2, v3, v4 = (V[f[(d + s) % dim]] for s in range(4))
+            diag_cross = np.cross(v3 - v1, v4 - v2)
+            denom = np.linalg.norm(diag_cross) * (np.linalg.norm(v3 - v1) + np.linalg.norm(v4 - v2)) / 2.0
+            quad[d] = diag_cross @ (v2 - v1) / denom if abs(denom) > 10e-10 else 0.0
+        out[fid] = 100 * np.sqrt(np.linalg.norm(quad) ** 2 / dim)
+    return out
+
+
+def test_planarity_measure_matches_phcpf_code():
+    from hanan.geometry.measures import planarity_measure
+    rng = np.random.default_rng(3)
+    for d in (4, 5, 6, 7):
+        t = np.linspace(0, 2 * np.pi, d, endpoint=False)
+        V = np.c_[np.cos(t), np.sin(t), np.zeros(d)] + 0.05 * rng.standard_normal((d, 3))
+        F = [list(range(d))]
+        np.testing.assert_allclose(100 * planarity_measure(V, F), _phcpf_planarity_general(V, F), atol=1e-12)
+
+
+def test_planarity_measure_planar_folded_and_bent():
+    from hanan.geometry.measures import planarity_measure
+    t = np.linspace(0, 2 * np.pi, 6, endpoint=False)
+    hexagon = np.c_[np.cos(t), np.sin(t), np.zeros(6)]
+    folded = hexagon[[0, 3, 1, 4, 2, 5]]                     # same plane, outline crosses itself
+    bent = hexagon.copy(); bent[2, 2] = 0.1
+    F = [list(range(6))]
+    assert planarity_measure(hexagon, F)[0] == pytest.approx(0, abs=1e-12)
+    assert planarity_measure(folded, F)[0] == pytest.approx(0, abs=1e-12)
+    assert planarity_measure(bent, F)[0] > 1e-3
+    assert planarity_measure(hexagon[:3], [[0, 1, 2]])[0] == 0.0       # triangles are planar
+
+
+def test_quad_planarity_is_diagonal_distance_over_mean_diagonal():
+    from hanan.geometry.measures import planarity_measure, quadruplet_planarity
+    q = np.random.default_rng(5).standard_normal((4, 3))
+    d1, d2 = q[2] - q[0], q[3] - q[1]
+    n = np.cross(d1, d2)
+    expected = abs((q[1] - q[0]) @ n) / np.linalg.norm(n) / (0.5 * (np.linalg.norm(d1) + np.linalg.norm(d2)))
+    assert quadruplet_planarity(*q) == pytest.approx(expected)
+    assert planarity_measure(q, [[0, 1, 2, 3]])[0] == pytest.approx(expected)   # all 4 quadruplets agree
+
+
+def test_deviation_from_reference():
+    from hanan.geometry.measures import deviation_from_reference
+    M_V = np.array([[0, 0, 0], [2, 0, 0], [2, 1, 0], [0, 1, 0]], dtype=float)   # 2 x 1 rectangle
+    M_F = [[0, 1, 2, 3]]
+    diameter = np.sqrt(5.0)
+    P = np.array([[1.0, 0.5, 0.0], [1.0, 0.5, 0.3], [3.0, 0.5, 0.0]])
+    np.testing.assert_allclose(deviation_from_reference(P, M_V, M_F), [0.0, 0.3 / diameter, 1.0 / diameter])

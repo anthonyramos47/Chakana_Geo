@@ -70,6 +70,9 @@ from .measures import (
     face_planarity,
     compute_planarity,
     planarity_measure_quad_mesh,
+    quadruplet_planarity,
+    planarity_measure,
+    deviation_from_reference,
     compute_circumcircles_quad_mesh,
 )
 

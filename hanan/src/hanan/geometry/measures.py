@@ -54,6 +54,9 @@ def face_planarity(vertices, faces):
     normalised by the mean edge length of the face.  A value of 0 means
     perfectly planar.
 
+    On a folded (self-intersecting) face the Newell normal is unreliable and this value
+    can be far too large; `planarity_measure` has no such problem.
+
     Args:
         vertices: (V, 3) array of vertex positions.
         faces:    list of index arrays, one per face (triangles, quads, n-gons).
@@ -145,6 +148,90 @@ def planarity_measure_quad_mesh(quad_mesh):
         planarity_measures.append(np.linalg.norm(point_diag_1 - point_diag_2)/average_edge_length)
 
     return np.array(planarity_measures)
+
+
+def quadruplet_planarity(p1, p2, p3, p4):
+    """
+    Planarity error of four consecutive vertices p1, p2, p3, p4 (as in PH-CPF).
+
+    Distance between the two diagonal lines p1p3 and p2p4, divided by the average
+    diagonal length:
+
+        |<n, p2 - p1>| / (½ (‖p3 - p1‖ + ‖p4 - p2‖)),   n = unit(p31 × p42),
+
+    with p_ij = p_i - p_j. It is 0 when the four points are coplanar; parallel diagonals
+    (which always lie in one plane) give 0 as well.
+
+    Args:
+        p1, p2, p3, p4: Points (3,).
+
+    Returns:
+        float.
+    """
+    p1, p2, p3, p4 = (np.asarray(p, dtype=float) for p in (p1, p2, p3, p4))
+    d1, d2 = p3 - p1, p4 - p2
+    c = np.cross(d1, d2)
+    denom = np.linalg.norm(c) * 0.5 * (np.linalg.norm(d1) + np.linalg.norm(d2))
+    if denom <= 1e-9:
+        return 0.0
+    return abs(c @ (p2 - p1)) / denom
+
+
+def planarity_measure(vertices, faces):
+    """
+    Planarity error per face of a polygon mesh (triangles, quads, hexagons, n-gons).
+
+    For a d-sided face, the root mean square of `quadruplet_planarity` over its d
+    consecutive quadruplets (p_j, p_j+1, p_j+2, p_j+3), indices taken cyclically. The
+    value is dimensionless (PH-CPF reports it in percent, i.e. ×100); triangles give 0.
+    For a quad it is the distance between its diagonals divided by their average length.
+    It uses no face normal, so folded (self-intersecting) faces are measured correctly,
+    unlike `face_planarity`.
+
+    Reference: K. Pluta, M. Edelstein, A. Vaxman, M. Ben-Chen, "PH-CPF: Planar Hexagonal
+    Meshing using Coordinate Power Fields", ACM Trans. Graph. 40(4), Article 156, 2021
+    (`planarity_general` in the authors' code, github.com/michaled/PH-CPF).
+
+    Args:
+        vertices: (V, 3) vertex positions.
+        faces:    list of vertex-index lists, one per face.
+
+    Returns:
+        planarity: (F,) array, one value per face.
+    """
+    vertices = np.asarray(vertices, dtype=float)
+    out = np.zeros(len(faces))
+    for fi, face in enumerate(faces):
+        P = vertices[list(face)]
+        d = len(P)
+        if d < 4:
+            continue
+        errors = [quadruplet_planarity(P[j], P[(j + 1) % d], P[(j + 2) % d], P[(j + 3) % d])
+                  for j in range(d)]
+        out[fi] = np.sqrt(np.mean(np.square(errors)))
+    return out
+
+
+def deviation_from_reference(points, ref_vertices, ref_faces):
+    """
+    Deviation of points from a reference mesh M, relative to the size of M.
+
+    For each point: its distance to M (closest point on M, polygon faces fan-triangulated)
+    divided by the diameter of the bounding box of M.
+
+    Args:
+        points:       (k, 3) points, e.g. the vertices of an optimized mesh.
+        ref_vertices: (V, 3) vertices of M.
+        ref_faces:    list of vertex-index lists of M (any polygons).
+
+    Returns:
+        deviation: (k,) array.
+    """
+    import igl
+    M_V = np.asarray(ref_vertices, dtype=float)
+    tris = np.array([[f[0], f[k], f[k + 1]] for f in ref_faces for k in range(1, len(f) - 1)])
+    d2, _, _ = igl.point_mesh_squared_distance(np.atleast_2d(np.asarray(points, dtype=float)), M_V, tris)
+    return np.sqrt(d2) / np.linalg.norm(M_V.max(axis=0) - M_V.min(axis=0))
 
 
 def compute_circumcircles_quad_mesh(vertices, faces):
