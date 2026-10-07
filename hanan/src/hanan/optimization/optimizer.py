@@ -9,7 +9,7 @@ from hanan.optimization.edge_length import EdgeLength
 from hanan.optimization.proximity_reference import ProximityReference
 from hanan.optimization.glide_reference import GlideReference
 
-from scipy.sparse import eye, issparse
+from scipy.sparse import eye, issparse, diags
 from scipy.sparse.linalg import spsolve
 from concurrent.futures import ThreadPoolExecutor
 import os
@@ -62,6 +62,7 @@ class Optimizer():
         self.b = None
         self.mu = None  # Damping factor for LM
         self.adaptive_mu = True  # Flag to enable/disable adaptive damping
+        self._fixed_idx = None  # Global indices held constant (see fix_variables)
         self._total_energy = 0.0  # Total energy across ALL terms (computed in get_gradients)
         
         # Iteration details and step size
@@ -339,6 +340,69 @@ class Optimizer():
             # Ensure mu is never zero or negative
             self.mu = 1e-6 * max(diag_max, 1.0)
 
+    def fix_variables(self, var_name: str, indices=None, dim: int = 1) -> None:
+        """Hold entries of a variable constant for the rest of the optimization.
+
+        A hard constraint, not a penalty: the fixed entries get exactly zero
+        step, whatever the energies ask for. Use it for things that must not
+        move at all — boundary vertices of a patch, or a block of variables
+        during a warm-up phase.
+
+        Args:
+            var_name: Name of the variable, as passed to add_variable.
+            indices:  Which ELEMENTS of it to fix, in the variable's own
+                      numbering (e.g. vertex ids for "v"). None fixes all of it.
+            dim:      Components per element; 3 for a variable holding
+                      3-vectors, so index k covers entries 3k, 3k+1, 3k+2.
+
+        Implementation: the columns of J belonging to a fixed variable should
+        vanish, so row and column i of H = J^T J vanish with them and b_i = 0.
+        Rather than touching every term's J, the equivalent mask is applied to
+        the ASSEMBLED system in _solve_damped_system, which also leaves the
+        per-term CSR caching alone. A unit diagonal is written at the fixed
+        rows so dx = 0 there exactly, independent of the LM damping, and the
+        matrix keeps a sane condition number.
+        """
+        if self.var_idx is None or var_name not in self.var_idx:
+            raise KeyError(
+                f"unknown variable {var_name!r}; add_variable it first "
+                f"(have: {sorted(self.var_idx) if self.var_idx else []})")
+        idx = np.asarray(self.var_idx[var_name]).ravel()
+
+        if indices is None:
+            fixed = idx
+        else:
+            e = np.asarray(indices, dtype=np.int64).ravel()
+            if dim == 1:
+                cols = e
+            else:
+                cols = (dim * e[:, None] + np.arange(dim)).ravel()
+            if cols.size and (cols.min() < 0 or cols.max() >= len(idx)):
+                raise IndexError(
+                    f"index out of range for {var_name!r}: it has {len(idx)} "
+                    f"entries ({len(idx)//dim} elements at dim={dim})")
+            fixed = idx[cols]
+
+        self._fixed_idx = (fixed if self._fixed_idx is None
+                           else np.union1d(self._fixed_idx, fixed))
+
+    def free_variables(self) -> None:
+        """Release everything previously passed to fix_variables."""
+        self._fixed_idx = None
+
+    def _apply_fixed(self, H, b):
+        """Zero the rows/cols of the fixed variables, unit diagonal, b = 0."""
+        if self._fixed_idx is None or len(self._fixed_idx) == 0:
+            return H, b
+        n = H.shape[0]
+        keep = np.ones(n)
+        keep[self._fixed_idx] = 0.0
+        D = diags(keep)
+        # D H D zeros row i and column i for every fixed i; the second term
+        # puts 1 back on those diagonals so the solve returns dx_i = 0.
+        H = D @ H @ D + diags(1.0 - keep)
+        return H, b * keep
+
     def _solve_damped_system(self) -> np.ndarray:
         """
         Solves the damped linear system: (H + μI) dx = -b
@@ -352,7 +416,10 @@ class Optimizer():
         else:
             H_damped = self.H.copy()
             H_damped.flat[::self.var + 1] += self.mu
-        return spsolve(H_damped, -self.b)
+
+        # After damping, so mu is still derived from the true Hessian.
+        H_damped, rhs = self._apply_fixed(H_damped, -self.b)
+        return spsolve(H_damped, rhs)
 
     def _LM_simple(self) -> tuple:
         """
