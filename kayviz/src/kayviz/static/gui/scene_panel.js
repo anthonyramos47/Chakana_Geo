@@ -727,6 +727,47 @@ export class ScenePanel {
       onChange(v);
     });
 
+    // Click the value to type it in: Enter or blur applies, Escape cancels.
+    // A value outside the slider range widens the range.
+    valDisplay.title = 'Click to type a value';
+    valDisplay.style.cursor = 'text';
+    valDisplay.addEventListener('click', e => {
+      e.preventDefault();   // the wrap is a <label>: keep focus off the slider
+      e.stopPropagation();
+      const edit = document.createElement('input');
+      edit.type  = 'text';
+      edit.value = input.value;
+      Object.assign(edit.style, {
+        width: '64px', fontSize: '10px', color: '#ddd', background: '#111',
+        border: '1px solid #4a9eff', borderRadius: '2px', padding: '0 2px',
+        textAlign: 'right', flexShrink: '0',
+      });
+      let done = false;
+      const finish = apply => {
+        if (done) return;
+        done = true;
+        const v = parseFloat(edit.value);
+        if (apply && Number.isFinite(v)) {
+          if (v < parseFloat(input.min)) input.min = v;
+          if (v > parseFloat(input.max)) input.max = v;
+          input.value = v;
+          valDisplay.textContent = fmt(v);
+          onChange(v);
+        }
+        edit.replaceWith(valDisplay);
+      };
+      edit.addEventListener('keydown', ev => {
+        ev.stopPropagation();
+        if (ev.key === 'Enter') finish(true);
+        else if (ev.key === 'Escape') finish(false);
+      });
+      edit.addEventListener('click', ev => { ev.preventDefault(); ev.stopPropagation(); });
+      edit.addEventListener('blur', () => finish(true));
+      valDisplay.replaceWith(edit);
+      edit.focus();
+      edit.select();
+    });
+
     wrap.append(lbl, input, valDisplay);
     return { wrap, input, valDisplay };
   }
