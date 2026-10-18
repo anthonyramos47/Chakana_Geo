@@ -49,12 +49,13 @@ class Scene:
     def register_surface_mesh(self, name: str, vertices, faces,
                               color=(0.8, 0.8, 0.8), face_size=None,
                               opacity: float = 1.0, show_edges: bool = False,
-                              edge_color=(0.8, 0.8, 0.8)):
-        """Mirrors ps.register_surface_mesh(). Pass show_edges=True to overlay the wireframe."""
+                              edge_color=(0.8, 0.8, 0.8), show: bool = True):
+        """Mirrors ps.register_surface_mesh(). Pass show_edges=True to overlay the wireframe,
+        show=False to register it hidden."""
         result = ser.surface_mesh(name, vertices, faces,
                                   color=color, face_size=face_size,
                                   opacity=opacity,
-                                  show_edges=show_edges, edge_color=edge_color)
+                                  show_edges=show_edges, edge_color=edge_color, show=show)
         if isinstance(result, list):
             self._objects.extend(result)
         else:
@@ -62,43 +63,46 @@ class Scene:
         return self
 
     def register_curve_network(self, name: str, vertices, edges,
-                               color=(0.8, 0.2, 0.2)):
-        """Mirrors ps.register_curve_network()."""
-        self._objects.append(ser.curve_network(name, vertices, edges, color=color))
+                               color=(0.8, 0.2, 0.2), show: bool = True):
+        """Mirrors ps.register_curve_network(). show=False registers it hidden."""
+        self._objects.append(ser.curve_network(name, vertices, edges, color=color, show=show))
         return self
 
     def register_point_cloud(self, name: str, points,
-                             color=(0.2, 0.5, 0.8), radius: float = 0.01):
-        """Mirrors ps.register_point_cloud()."""
-        self._objects.append(ser.point_cloud(name, points, color=color, radius=radius))
+                             color=(0.2, 0.5, 0.8), radius: float = 0.01, show: bool = True):
+        """Mirrors ps.register_point_cloud(). show=False registers it hidden."""
+        self._objects.append(ser.point_cloud(name, points, color=color, radius=radius, show=show))
         return self
 
     # ── Quantity methods — mirrors structure.add_*_quantity() ────────────────
 
     def add_scalar_quantity(self, target_name: str, field_name: str,
-                            values, defined_on: str = "vertices"):
-        """Mirrors structure.add_scalar_quantity()."""
+                            values, defined_on: str = "vertices", show: bool = None):
+        """Mirrors structure.add_scalar_quantity(). show: see kayviz.add_scalar_quantity."""
         self._objects.append(
-            ser.scalar_quantity(target_name, field_name, values, defined_on=defined_on)
+            ser.scalar_quantity(target_name, field_name, values, defined_on=defined_on,
+                                show=show)
         )
         return self
 
     def add_vector_quantity(self, target_name: str, field_name: str,
                             vectors, defined_on: str = "vertices",
-                            length: float = 0.05, radius: float = None):
-        """Mirrors structure.add_vector_quantity()."""
+                            length: float = 0.05, radius: float = None,
+                            show: bool = None):
+        """Mirrors structure.add_vector_quantity(). show: see kayviz.add_vector_quantity."""
         self._objects.append(
             ser.vector_quantity(target_name, field_name, vectors, defined_on=defined_on,
-                                length=length, radius=radius)
+                                length=length, radius=radius, show=show)
         )
         return self
 
     def register_vector_field(self, name: str, origins, vectors,
                               length: float = 0.05, radius: float = None,
-                              color=(0.2, 0.8, 0.4)):
-        """Render an arrow field (cylinder shaft + cone head per vector)."""
+                              color=(0.2, 0.8, 0.4), show: bool = True):
+        """Render an arrow field (cylinder shaft + cone head per vector). show=False: hidden."""
         self._objects.append(
-            ser.vector_field(name, origins, vectors, length=length, radius=radius, color=color)
+            ser.vector_field(name, origins, vectors, length=length, radius=radius, color=color,
+                             show=show)
         )
         return self
 

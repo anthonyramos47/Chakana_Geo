@@ -406,7 +406,13 @@ export class Viewer {
   // ── Server message dispatcher ─────────────────────────────────────────────
 
   applyMessage(data) {
+    // Objects registered with show=false; hidden after the whole batch so the
+    // children that arrive after them (e.g. the edge_child of show_edges) hide too.
+    // A quantity with show=true takes its target off that list and shows it.
+    const hide = new Set();
+    let shown = false;
     for (const obj of (data.objects ?? [])) {
+      if (obj.show === false && obj.name && !obj.target) hide.add(obj.name);
       // ws.clear() from inside a callback travels as a marker in the object
       // stream (rather than its own message) so it stays ordered with the
       // geometry pushed after it in the same callback.
@@ -438,10 +444,21 @@ export class Viewer {
           this.addEdgeChild(obj.target, obj.vertices, obj.edges,
                             obj.color ?? [0.1,0.1,0.1], obj.radius ?? 0);
           break;
-        case 'scalar_quantity':
+        case 'scalar_quantity': {
           this.addScalarQuantity(obj.target, obj.name, obj.values,
                                  obj.defined_on ?? 'vertices');
+          const parent = this._objects.get(obj.target);
+          if (!parent || !parent.children.has(obj.name)) break;
+          if (obj.show === true) {
+            this.setActiveScalar(obj.target, obj.name);
+            hide.delete(obj.target);
+            this.setEnabled(obj.target, true);
+            shown = true;
+          } else if (obj.show === false && parent.activeScalar === obj.name) {
+            this.setActiveScalar(obj.target, null);
+          }
           break;
+        }
         case 'vector_quantity': {
           const parent = this._objects.get(obj.target);
           if (!parent || parent.type !== 'surface_mesh') break;
@@ -460,11 +477,23 @@ export class Viewer {
                                           vectors: obj.vectors, color: [...color], length, radius });
           parent.addChild(child);
           // Auto-activate if no vector active, or if replacing the currently active one
-          if (parent.activeVector === null || parent.activeVector === key) {
+          if (obj.show === false) {
+            child.setVisible(false);
+            if (parent.activeVector === key) parent.activeVector = null;
+          } else if (obj.show === true || parent.activeVector === null || parent.activeVector === key) {
             this.setActiveVector(obj.target, key);
           } else {
             // Arriving non-active vector starts hidden
             child.setVisible(false);
+          }
+          if (obj.show === true) {
+            hide.delete(obj.target);
+            this.setEnabled(obj.target, true);
+            shown = true;
+          } else if (!parent.visible) {
+            // Inherit a hidden parent; ticking the parent shows it (setEnabled
+            // restores the meshes of children with child.visible).
+            mesh.visible = false;
           }
           break;
         }
@@ -477,6 +506,8 @@ export class Viewer {
           break;
       }
     }
+    for (const name of hide) this.setEnabled(name, false);
+    if (hide.size || shown) this._emit();    // refresh the scene panel's checkboxes
   }
 
   // ── Internals ─────────────────────────────────────────────────────────────

@@ -119,12 +119,13 @@ def register_surface_mesh(name: str, vertices, faces,
                           color=(0.8, 0.8, 0.8), opacity: float = 1.0,
                           show_edges: bool = False,
                           edge_color=(0.8, 0.8, 0.8),
-                          edge_radius: float = 0.0) -> None:
-    """Mirrors ps.register_surface_mesh(). Pass show_edges=True to overlay the wireframe."""
+                          edge_radius: float = 0.0, show: bool = True) -> None:
+    """Mirrors ps.register_surface_mesh(). Pass show_edges=True to overlay the wireframe,
+    show=False to register it hidden (tick it in the scene panel to show it)."""
     result = ser.surface_mesh(name, vertices, faces,
                               color=color, opacity=opacity,
                               show_edges=show_edges, edge_color=edge_color,
-                              edge_radius=edge_radius)
+                              edge_radius=edge_radius, show=show)
     if isinstance(result, list):
         push_objects(result)
     else:
@@ -132,26 +133,33 @@ def register_surface_mesh(name: str, vertices, faces,
 
 
 def register_curve_network(name: str, vertices, edges,
-                           color=(0.8, 0.2, 0.2), radius: float = 0.002) -> None:
-    """Mirrors ps.register_curve_network()."""
-    _push(ser.curve_network(name, vertices, edges, color=color, radius=radius))
+                           color=(0.8, 0.2, 0.2), radius: float = 0.002,
+                           show: bool = True) -> None:
+    """Mirrors ps.register_curve_network(). show=False registers it hidden."""
+    _push(ser.curve_network(name, vertices, edges, color=color, radius=radius, show=show))
 
 
 def register_point_cloud(name: str, points,
-                         color=(0.2, 0.5, 0.8), radius: float = 0.0005) -> None:
-    """Mirrors ps.register_point_cloud()."""
-    _push(ser.point_cloud(name, points, color=color, radius=radius))
+                         color=(0.2, 0.5, 0.8), radius: float = 0.0005,
+                         show: bool = True) -> None:
+    """Mirrors ps.register_point_cloud(). show=False registers it hidden."""
+    _push(ser.point_cloud(name, points, color=color, radius=radius, show=show))
 
 
 def add_scalar_quantity(target: str, field_name: str, values,
-                        defined_on: str = "vertices") -> None:
-    """Mirrors structure.add_scalar_quantity()."""
-    _push(ser.scalar_quantity(target, field_name, values, defined_on=defined_on))
+                        defined_on: str = "vertices", show: bool = None) -> None:
+    """Mirrors structure.add_scalar_quantity().
+
+    show: None (default) follows the target; True colours the target with it and shows the
+    target if it was hidden; False adds it without colouring the mesh.
+    """
+    _push(ser.scalar_quantity(target, field_name, values, defined_on=defined_on, show=show))
 
 
 def add_vector_quantity(target: str, field_name: str, vectors,
                         defined_on: str = "vertices",
-                        length: float = 0.05, radius: float = None) -> None:
+                        length: float = 0.05, radius: float = None,
+                        show: bool = None) -> None:
     """Mirrors structure.add_vector_quantity().
 
     Args:
@@ -161,15 +169,17 @@ def add_vector_quantity(target: str, field_name: str, vectors,
         defined_on: "vertices" or "faces".
         length:     Total arrow length in scene units; adjust with the scene-panel slider.
         radius:     Arrow shaft/cone radius in scene units; defaults to length * 0.04.
+        show:       None (default) follows the target: hidden while the target is hidden.
+                    True shows the arrows and the target; False adds them hidden.
     """
     _push(ser.vector_quantity(target, field_name, vectors, defined_on=defined_on,
-                              length=length, radius=radius))
+                              length=length, radius=radius, show=show))
 
 
 def register_vector_field(name: str, origins, vectors,
                           length: float = 0.05,
                           radius: float = None,
-                          color=(0.2, 0.8, 0.4)) -> None:
+                          color=(0.2, 0.8, 0.4), show: bool = True) -> None:
     """Render an arrow field (cylinder shaft + cone head per vector).
 
     Args:
@@ -179,8 +189,10 @@ def register_vector_field(name: str, origins, vectors,
         length:  Total arrow length in scene units; adjust with the scene-panel slider.
         radius:  Arrow shaft/cone radius in scene units; defaults to length * 0.04.
         color:   [r, g, b] in 0-1.
+        show:    False registers it hidden (tick it in the scene panel to show it).
     """
-    _push(ser.vector_field(name, origins, vectors, length=length, radius=radius, color=color))
+    _push(ser.vector_field(name, origins, vectors, length=length, radius=radius, color=color,
+                           show=show))
 
 
 def push_objects(objects: list) -> None:

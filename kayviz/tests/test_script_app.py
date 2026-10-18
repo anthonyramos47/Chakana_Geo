@@ -75,6 +75,28 @@ class TestBuffer:
         asyncio.run(app.push([no_name]))
         assert len(app._buffer) == 0
 
+    def test_set_enabled_keeps_object(self):
+        app = make_app()
+        asyncio.run(app.push([mesh_obj("A"), ser.set_enabled("A", False)]))
+        assert app._buffer["A"]["type"] == "surface_mesh"
+        assert app._buffer["A"]["show"] is False
+
+    def test_quantities_keyed_by_target(self):
+        app = make_app()
+        vals = np.zeros(3)
+        asyncio.run(app.push([mesh_obj("A"), mesh_obj("B"),
+                              ser.scalar_quantity("A", "K", vals),
+                              ser.scalar_quantity("B", "K", vals)]))
+        assert {"A::K", "B::K"} <= set(app._buffer)
+        assert app._buffer["A"]["type"] == "surface_mesh"
+
+    def test_quantity_show_true_shows_target(self):
+        app = make_app()
+        V = np.array([[0,0,0],[1,0,0],[0,1,0]], dtype=np.float32)
+        hidden = ser.surface_mesh("A", V, [[0, 1, 2]], show=False)
+        asyncio.run(app.push([hidden, ser.vector_quantity("A", "n", V, show=True)]))
+        assert app._buffer["A"]["show"] is True
+
 
 # ── initial_scene ─────────────────────────────────────────────────────────────
 

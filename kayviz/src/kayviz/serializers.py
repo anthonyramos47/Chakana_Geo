@@ -18,8 +18,8 @@ import numpy as np
 
 def surface_mesh(name: str, vertices, faces, color=(0.8, 0.8, 0.8),
                  face_size=None, opacity=1.0, show_edges=False,
-                 edge_color=(0.8, 0.8, 0.8), edge_radius: float = 0.0):
-    """Mirrors ps.register_surface_mesh().
+                 edge_color=(0.8, 0.8, 0.8), edge_radius: float = 0.0, show: bool = True):
+    """Mirrors ps.register_surface_mesh(). show=False registers the object hidden (its checkbox in the scene panel unticked).
 
     Faces may be uniform (all same length) or ragged (polygons with different
     vertex counts).  Ragged faces are fan-triangulated for rendering.
@@ -82,6 +82,7 @@ def surface_mesh(name: str, vertices, faces, color=(0.8, 0.8, 0.8),
         "color":           [float(c) for c in color],
         "opacity":         float(opacity),
         "show_edges":      bool(show_edges),
+        "show":            bool(show),
     }
 
     if show_edges:
@@ -89,8 +90,9 @@ def surface_mesh(name: str, vertices, faces, color=(0.8, 0.8, 0.8),
     return mesh_dict
 
 
-def curve_network(name: str, vertices, edges, color=(0.8, 0.2, 0.2), radius: float = 0.002):
-    """Mirrors ps.register_curve_network()."""
+def curve_network(name: str, vertices, edges, color=(0.8, 0.2, 0.2), radius: float = 0.002,
+                  show: bool = True):
+    """Mirrors ps.register_curve_network(). show=False registers the object hidden (its checkbox in the scene panel unticked)."""
     return {
         "type":     "curve_network",
         "name":     name,
@@ -98,17 +100,19 @@ def curve_network(name: str, vertices, edges, color=(0.8, 0.2, 0.2), radius: flo
         "edges":    np.array(edges,    dtype=np.int32).flatten().tolist(),
         "color":    [float(c) for c in color],
         "radius":   float(radius),
+        "show":     bool(show),
     }
 
 
-def point_cloud(name: str, points, color=(0.2, 0.5, 0.8), radius=0.0005):
-    """Mirrors ps.register_point_cloud()."""
+def point_cloud(name: str, points, color=(0.2, 0.5, 0.8), radius=0.0005, show: bool = True):
+    """Mirrors ps.register_point_cloud(). show=False registers the object hidden (its checkbox in the scene panel unticked)."""
     return {
         "type":   "point_cloud",
         "name":   name,
         "points": np.array(points, dtype=np.float32).flatten().tolist(),
         "color":  [float(c) for c in color],
         "radius": float(radius),
+        "show":   bool(show),
     }
 
 
@@ -125,23 +129,36 @@ def edge_child(target_name: str, vertices, edges,
     }
 
 
-def scalar_quantity(target_name: str, field_name: str, values, defined_on="vertices"):
-    """Mirrors structure.add_scalar_quantity()."""
-    return {
+def scalar_quantity(target_name: str, field_name: str, values, defined_on="vertices",
+                    show: bool | None = None):
+    """Mirrors structure.add_scalar_quantity().
+
+    show: None (default) follows the parent - hidden while the parent is hidden; True also
+    shows the parent; False adds the quantity without displaying it.
+    For a scalar, displaying it means colouring the mesh with it.
+    """
+    d = {
         "type":       "scalar_quantity",
         "target":     target_name,
         "name":       field_name,
         "defined_on": defined_on,
         "values":     np.array(values, dtype=np.float32).tolist(),
     }
+    if show is not None:
+        d["show"] = bool(show)
+    return d
 
 
 def vector_quantity(target_name: str, field_name: str, vectors, defined_on="vertices",
-                    length: float = 0.05, radius: float = None):
-    """Mirrors structure.add_vector_quantity()."""
+                    length: float = 0.05, radius: float = None, show: bool | None = None):
+    """Mirrors structure.add_vector_quantity().
+
+    show: None (default) follows the parent - hidden while the parent is hidden; True also
+    shows the parent; False adds the quantity without displaying it.
+    """
     if radius is None:
         radius = length * 0.04
-    return {
+    d = {
         "type":       "vector_quantity",
         "target":     target_name,
         "name":       field_name,
@@ -150,11 +167,17 @@ def vector_quantity(target_name: str, field_name: str, vectors, defined_on="vert
         "length":     float(length),
         "radius":     float(radius),
     }
+    if show is not None:
+        d["show"] = bool(show)
+    return d
 
 
 def vector_field(name: str, origins, vectors, length: float = 0.05,
-                 radius: float = None, color=(0.2, 0.8, 0.4)):
-    """Arrow vector field — origins + direction vectors, rendered as cylinder+cone arrows."""
+                 radius: float = None, color=(0.2, 0.8, 0.4), show: bool = True):
+    """Arrow vector field — origins + direction vectors, rendered as cylinder+cone arrows.
+
+    show=False registers the object hidden (its checkbox in the scene panel unticked).
+    """
     if radius is None:
         radius = length * 0.04
     return {
@@ -165,6 +188,7 @@ def vector_field(name: str, origins, vectors, length: float = 0.05,
         "length":  float(length),
         "radius":  float(radius),
         "color":   [float(c) for c in color],
+        "show":    bool(show),
     }
 
 

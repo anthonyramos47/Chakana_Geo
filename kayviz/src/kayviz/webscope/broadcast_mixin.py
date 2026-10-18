@@ -37,6 +37,20 @@ class BroadcastMixin:
                 self._buffer.clear()
                 continue
             name = obj.get("name")
+            target = obj.get("target")
+            if target and name:
+                # A quantity: keyed by its target, so the same field name on two
+                # meshes does not collide. show=True also shows the target.
+                if obj.get("show") is True and target in self._buffer:
+                    self._buffer[target] = {**self._buffer[target], "show": True}
+                self._buffer[f"{target}::{name}"] = obj
+                continue
+            if obj.get("type") == "set_enabled":
+                # Keep the object and record its visibility on it; storing the
+                # message under the name would replace the object itself.
+                if name in self._buffer:
+                    self._buffer[name] = {**self._buffer[name], "show": bool(obj["enabled"])}
+                continue
             if name:
                 self._buffer[name] = obj
 
