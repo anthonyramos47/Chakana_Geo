@@ -71,13 +71,24 @@ class BroadcastMixin:
 
     # ── Broadcast ─────────────────────────────────────────────────────────────
 
+    # A tab that stops reading (backgrounded, asleep, half-closed socket) makes
+    # send_json block forever; drop it after this long instead of stalling pushes.
+    SEND_TIMEOUT = 10.0
+
     async def _broadcast(self, msg: dict) -> None:
-        dead = set()
-        for ws in list(self._clients):
+        clients = list(self._clients)
+
+        async def send(ws):
+            await asyncio.wait_for(ws.send_json(msg), timeout=self.SEND_TIMEOUT)
+
+        results = await asyncio.gather(*(send(ws) for ws in clients),
+                                       return_exceptions=True)
+        dead = {ws for ws, r in zip(clients, results) if isinstance(r, BaseException)}
+        for ws in dead:
             try:
-                await ws.send_json(msg)
+                await asyncio.wait_for(ws.close(), timeout=1.0)
             except Exception:
-                dead.add(ws)
+                pass
         self._clients -= dead
         if not self._clients:
             self._idle_event.set()
