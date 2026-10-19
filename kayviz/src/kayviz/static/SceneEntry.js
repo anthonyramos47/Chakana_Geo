@@ -2,10 +2,10 @@
  * SceneEntry — owns one registered scene object and all its children.
  *
  * Universal fields (all types):
- *   type, mesh, visible, color, opacity, radius, children, activeScalar, activeVector
+ *   type, mesh, visible, color, opacity, radius, children, activeScalar
  *
  * Type-specific state lives in opts:
- *   surface_mesh  — opts.vertices, opts.faceSize, opts.material, opts.trisPerFace,
+ *   surface_mesh  — opts.vertices, opts.faces, opts.faceSize, opts.material, opts.trisPerFace,
  *                   opts.nonIndexed, opts.edgeVerts, opts.edgeIdx
  *   curve_network — opts.verts, opts.edges
  *   vector_field  — opts.origins, opts.vectors, opts.length
@@ -69,11 +69,13 @@ export class EdgeChild extends Child {
 // ── VectorChild ───────────────────────────────────────────────────────────────
 
 export class VectorChild extends Child {
-  constructor({ key, mesh, origins, vectors, color = [0.2, 0.8, 0.4], length = 0.05, radius = null }) {
+  constructor({ key, mesh, origins, vectors, definedOn = 'vertices',
+                color = [0.2, 0.8, 0.4], length = 0.05, radius = null }) {
     super(key, 'vector');
-    this.mesh    = mesh;
-    this.origins = origins;
-    this.vectors = vectors;
+    this.mesh      = mesh;
+    this.origins   = origins;   // arrow bases: vertices, points or face barycenters
+    this.vectors   = vectors;
+    this.definedOn = definedOn;
     this.color   = [...color];
     this.length  = length;
     this.radius  = radius ?? length * 0.04;
@@ -274,7 +276,6 @@ export class SceneEntry {
     this.radius       = opts.radius       ?? 0;
     this.children     = new Map();   // key → Child instance
     this.activeScalar = null;        // key of the currently applied ScalarChild
-    this.activeVector = null;        // key of the currently visible VectorChild
     this.opts         = opts;        // type-specific state
 
     if (type === 'surface_mesh') {
@@ -304,7 +305,6 @@ export class SceneEntry {
       child.dispose(scene);
     }
     if (key === this.activeScalar) this.activeScalar = null;
-    if (key === this.activeVector) this.activeVector = null;
     this.children.delete(key);
   }
 

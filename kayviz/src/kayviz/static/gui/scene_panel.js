@@ -589,35 +589,17 @@ export class ScenePanel {
   // ── Vector child row ──────────────────────────────────────────────────────
 
   _buildVectorChildRow(parentName, childKey, child, parentEntry) {
-    // Radio button — only one vector active at a time per parent
-    const radio = document.createElement('input');
-    radio.type    = 'radio';
-    radio.name    = `vector-active-${parentName}`;
-    radio.checked = (parentEntry.activeVector === childKey);
-    radio.title   = 'Make active vector';
-    radio.style.cursor = 'pointer';
-
-    // Clicking an already-checked radio deactivates
-    let lastChecked = radio.checked;
-    radio.addEventListener('click', () => {
-      if (lastChecked) {
-        radio.checked = false;
-        lastChecked = false;
-        this._viewer.setActiveVector(parentName, null);
-      } else {
-        lastChecked = true;
-        this._viewer.setActiveVector(parentName, childKey);
-      }
-    });
-    radio.addEventListener('change', () => {
-      if (radio.checked) {
-        lastChecked = true;
-        this._viewer.setActiveVector(parentName, childKey);
-      }
-    });
+    // Checkbox — vector quantities are shown independently of each other
+    const eye = document.createElement('input');
+    eye.type    = 'checkbox';
+    eye.checked = child.visible ?? true;
+    eye.title   = 'Show vectors';
+    eye.style.cursor = 'pointer';
+    eye.addEventListener('change', () =>
+      this._viewer.setChildVisible(parentName, childKey, eye.checked));
 
     const { row } = this._buildChildRowSkeleton(
-      parentName, childKey, child, 'vector', '#3a2a4a', radio);
+      parentName, childKey, child, 'vector', '#3a2a4a', eye);
 
     // Color + length + radius sub-row
     const colorPicker = this._colorPicker(child.color ?? [0.2, 0.8, 0.4], hex => {

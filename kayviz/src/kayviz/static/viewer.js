@@ -12,6 +12,19 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { Materials } from './lib/MaterialLibrary.js';
 import { SceneEntry, EdgeChild, ScalarChild, VectorChild } from './SceneEntry.js';
 
+// Default colours of vector quantities, in the order they are handed out
+// (the first one is the former single default).
+const VECTOR_PALETTE = [
+  [0.20, 0.80, 0.40],  // green
+  [0.90, 0.30, 0.20],  // red
+  [0.20, 0.45, 0.90],  // blue
+  [0.95, 0.65, 0.10],  // orange
+  [0.60, 0.30, 0.80],  // purple
+  [0.10, 0.75, 0.80],  // cyan
+  [0.90, 0.35, 0.65],  // pink
+  [0.55, 0.40, 0.25],  // brown
+];
+
 export class Viewer {
   constructor(scene, matLib = Materials) {
     this.scene    = scene;
@@ -32,7 +45,7 @@ export class Viewer {
     this.scene.add(mesh);
     this._objects.set(name, new SceneEntry('surface_mesh', mesh, {
       color: [...color], opacity, material, visible: true,
-      vertices, faceSize,
+      vertices, faces, faceSize,
       trisPerFace: null, nonIndexed: false,
       edgeVerts: null, edgeIdx: null,
     }));
@@ -291,14 +304,39 @@ export class Viewer {
 
   // ── Vector quantity ───────────────────────────────────────────────────────
 
-  /** Set the active vector child — hides all others. Pass null to hide all. */
-  setActiveVector(parentName, key) {
-    const e = this._objects.get(parentName); if (!e) return;
-    for (const c of e.children.values()) {
-      if (c.type !== 'vector') continue;
-      c.setVisible(c.key === key);
+  /**
+   * Add (or replace) a vector quantity on a surface mesh or point cloud.
+   * Unlike scalars, any number of vector quantities can be visible at once.
+   * Without a color, the next palette colour not used by the parent's other
+   * vector quantities is taken (a replaced quantity keeps its colour).
+   */
+  addVectorQuantity(parentName, key, vectors, definedOn = 'vertices',
+                    { color = null, length = 0.05, radius = null, show = null } = {}) {
+    const parent = this._objects.get(parentName);
+    if (!parent || (parent.type !== 'surface_mesh' && parent.type !== 'point_cloud')) return;
+    const origins = this._vectorOrigins(parent, definedOn);
+    if (!origins) return;
+    if (origins.length !== vectors.length) {
+      console.warn(`[kayviz] vector quantity '${key}' on '${parentName}': ` +
+                   `${vectors.length / 3} vectors for ${origins.length / 3} ${definedOn}`);
     }
-    e.activeVector = key;
+    const prev = parent.children.get(key);
+    color  = color ?? (prev?.type === 'vector' ? prev.color : this._nextVectorColor(parent));
+    radius = radius ?? length * 0.04;
+    // A replaced quantity keeps its visibility unless show says otherwise
+    const visible = show ?? (prev?.type === 'vector' ? prev.visible : true);
+    if (prev) parent.removeChild(key, this.scene, parent.mesh);
+    const mesh = this._buildArrowField(origins, vectors, length, radius, color);
+    mesh.name        = `${parentName}::${key}`;
+    mesh.renderOrder = 1;
+    this.scene.add(mesh);
+    const child = new VectorChild({ key, mesh, origins, vectors, definedOn,
+                                    color: [...color], length, radius });
+    parent.addChild(child);
+    child.setVisible(visible);
+    // Inherit a hidden parent; ticking the parent shows it (setEnabled
+    // restores the meshes of children with child.visible).
+    if (!parent.visible) mesh.visible = false;
     this._emit();
   }
 
@@ -354,24 +392,14 @@ export class Viewer {
 
   // ── Child proxies (called by scene panel) ────────────────────────────────
 
-  /** Toggle visibility of a child. Vectors respect "active-of-kind" radio semantics. */
+  /** Toggle visibility of a child (vectors are independent of each other). */
   setChildVisible(parentName, childKey, visible) {
     const e = this._objects.get(parentName);
     if (!e) return;
     const child = e.children.get(childKey);
     if (!child) return;
-    if (child.type === 'vector') {
-      if (visible) {
-        // Hide all other vectors; make this one active
-        for (const c of e.children.values()) {
-          if (c.type === 'vector' && c !== child) c.setVisible(false);
-        }
-        e.activeVector = childKey;
-      } else if (e.activeVector === childKey) {
-        e.activeVector = null;
-      }
-    }
     child.setVisible(visible);
+    if (child.mesh && !e.visible) child.mesh.visible = false;
     this._emit();
   }
 
@@ -460,40 +488,16 @@ export class Viewer {
           break;
         }
         case 'vector_quantity': {
+          this.addVectorQuantity(obj.target, obj.name, obj.vectors,
+                                 obj.defined_on ?? 'vertices', {
+                                   color: obj.color ?? null, length: obj.length ?? 0.05,
+                                   radius: obj.radius ?? null, show: obj.show ?? null,
+                                 });
           const parent = this._objects.get(obj.target);
-          if (!parent || parent.type !== 'surface_mesh') break;
-          const origins = parent.opts.vertices;
-          if (!origins) break;
-          const key    = obj.name;
-          const color  = obj.color  ?? [0.2, 0.8, 0.4];
-          const length = obj.length ?? 0.05;
-          const radius = obj.radius ?? length * 0.04;
-          if (parent.children.has(key)) parent.removeChild(key, this.scene, parent.mesh);
-          const mesh = this._buildArrowField(origins, obj.vectors, length, radius, color);
-          mesh.name        = `${obj.target}::${key}`;
-          mesh.renderOrder = 1;
-          this.scene.add(mesh);
-          const child = new VectorChild({ key, mesh, origins,
-                                          vectors: obj.vectors, color: [...color], length, radius });
-          parent.addChild(child);
-          // Auto-activate if no vector active, or if replacing the currently active one
-          if (obj.show === false) {
-            child.setVisible(false);
-            if (parent.activeVector === key) parent.activeVector = null;
-          } else if (obj.show === true || parent.activeVector === null || parent.activeVector === key) {
-            this.setActiveVector(obj.target, key);
-          } else {
-            // Arriving non-active vector starts hidden
-            child.setVisible(false);
-          }
-          if (obj.show === true) {
+          if (obj.show === true && parent?.children.has(obj.name)) {
             hide.delete(obj.target);
             this.setEnabled(obj.target, true);
             shown = true;
-          } else if (!parent.visible) {
-            // Inherit a hidden parent; ticking the parent shows it (setEnabled
-            // restores the meshes of children with child.visible).
-            mesh.visible = false;
           }
           break;
         }
@@ -623,6 +627,47 @@ export class Viewer {
     geo.setIndex(indices);
     geo.computeVertexNormals();
     return geo;
+  }
+
+  /**
+   * Arrow base points of a vector quantity: the vertices / points, or the face
+   * barycenters (vertex average of each original polygon). Polygons that the
+   * server fan-triangulated are rebuilt from trisPerFace.
+   */
+  _vectorOrigins(e, definedOn) {
+    if (e.type === 'point_cloud') return e.opts.points;
+    const V = e.opts.vertices;
+    if (definedOn !== 'faces') return V;
+    const F = e.opts.faces, fs = e.opts.faceSize;
+    if (!V || !F) return null;
+    const polys = [];
+    if (e.opts.trisPerFace) {
+      let t = 0;
+      for (const n of e.opts.trisPerFace) {
+        const p = [F[3*t], F[3*t + 1], F[3*t + 2]];
+        for (let k = 1; k < n; k++) p.push(F[3*(t + k) + 2]);
+        polys.push(p);
+        t += n;
+      }
+    } else {
+      for (let i = 0; i < F.length; i += fs) polys.push(Array.from(F.slice(i, i + fs)));
+    }
+    const out = new Float32Array(polys.length * 3);
+    polys.forEach((p, i) => {
+      for (const v of p) {
+        out[3*i] += V[3*v]; out[3*i + 1] += V[3*v + 1]; out[3*i + 2] += V[3*v + 2];
+      }
+      out[3*i] /= p.length; out[3*i + 1] /= p.length; out[3*i + 2] /= p.length;
+    });
+    return out;
+  }
+
+  /** First VECTOR_PALETTE colour not used by e's vector children (cycles when all are used). */
+  _nextVectorColor(e) {
+    const used = [...e.children.values()].filter(c => c.type === 'vector').map(c => c.color);
+    const same = (a, b) => a.every((x, i) => Math.abs(x - b[i]) < 1e-6);
+    const free = VECTOR_PALETTE.find(c => !used.some(u => same(u, c)));
+    return [...(free ?? VECTOR_PALETTE[used.length % VECTOR_PALETTE.length])];
   }
 
   _rgb([r, g, b]) { return new THREE.Color(r, g, b); }

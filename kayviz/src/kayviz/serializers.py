@@ -150,11 +150,16 @@ def scalar_quantity(target_name: str, field_name: str, values, defined_on="verti
 
 
 def vector_quantity(target_name: str, field_name: str, vectors, defined_on="vertices",
-                    length: float = 0.05, radius: float = None, show: bool | None = None):
+                    length: float = 0.05, radius: float = None, show: bool | None = None,
+                    color=None):
     """Mirrors structure.add_vector_quantity().
 
+    defined_on: "vertices" (arrows at the vertices / points) or "faces" (at the face
+    barycenters).
     show: None (default) follows the parent - hidden while the parent is hidden; True also
     shows the parent; False adds the quantity without displaying it.
+    color: [r, g, b] in 0-1; None lets the viewer pick the next colour of its palette
+    that no other vector quantity of the same parent uses.
     """
     if radius is None:
         radius = length * 0.04
@@ -169,6 +174,8 @@ def vector_quantity(target_name: str, field_name: str, vectors, defined_on="vert
     }
     if show is not None:
         d["show"] = bool(show)
+    if color is not None:
+        d["color"] = [float(c) for c in color]
     return d
 
 
@@ -214,8 +221,8 @@ def add_cross_field(mesh_name, vec1, vec2, name="", rad=0.002, size=0.04,
                     color=(0.8, 0.2, 0.2)):
     """A 4-direction cross field on a mesh's faces: four vector_quantity dicts."""
     return [
-        vector_quantity(mesh_name, name + "_vec1",  vec1,  defined_on="faces"),
-        vector_quantity(mesh_name, name + "_-vec1", -vec1, defined_on="faces"),
-        vector_quantity(mesh_name, name + "_vec2",  vec2,  defined_on="faces"),
-        vector_quantity(mesh_name, name + "_-vec2", -vec2, defined_on="faces"),
+        vector_quantity(mesh_name, key, v, defined_on="faces",
+                        length=size, radius=rad, color=color)
+        for key, v in ((name + "_vec1", vec1), (name + "_-vec1", -vec1),
+                       (name + "_vec2", vec2), (name + "_-vec2", -vec2))
     ]

@@ -181,6 +181,25 @@ class TestVectorQuantity:
         assert d["length"] == pytest.approx(0.3)
         assert d["radius"] == pytest.approx(0.01)
 
+    def test_color_omitted_by_default(self):
+        # no color: the viewer picks the next palette colour
+        d = ser.vector_quantity("M", "n", np.zeros((2,3)))
+        assert "color" not in d
+
+    def test_color_custom(self):
+        d = ser.vector_quantity("M", "n", np.zeros((2,3)), color=(1, 0, 0.5))
+        assert d["color"] == [1.0, 0.0, 0.5]
+
+    def test_cross_field_passes_style(self):
+        ds = ser.add_cross_field("M", np.ones((2,3)), np.ones((2,3)), rad=0.01, size=0.2,
+                                 color=(0, 0, 1))
+        assert len(ds) == 4
+        for d in ds:
+            assert d["defined_on"] == "faces"
+            assert d["color"] == [0.0, 0.0, 1.0]
+            assert d["length"] == pytest.approx(0.2)
+            assert d["radius"] == pytest.approx(0.01)
+
 
 # ── vector_field ─────────────────────────────────────────────────────────────
 

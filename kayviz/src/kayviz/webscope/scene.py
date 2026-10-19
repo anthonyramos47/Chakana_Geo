@@ -88,11 +88,11 @@ class Scene:
     def add_vector_quantity(self, target_name: str, field_name: str,
                             vectors, defined_on: str = "vertices",
                             length: float = 0.05, radius: float = None,
-                            show: bool = None):
-        """Mirrors structure.add_vector_quantity(). show: see kayviz.add_vector_quantity."""
+                            show: bool = None, color=None):
+        """Mirrors structure.add_vector_quantity(). show, color: see kayviz.add_vector_quantity."""
         self._objects.append(
             ser.vector_quantity(target_name, field_name, vectors, defined_on=defined_on,
-                                length=length, radius=radius, show=show)
+                                length=length, radius=radius, show=show, color=color)
         )
         return self
 

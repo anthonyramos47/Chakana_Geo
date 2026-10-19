@@ -159,21 +159,25 @@ def add_scalar_quantity(target: str, field_name: str, values,
 def add_vector_quantity(target: str, field_name: str, vectors,
                         defined_on: str = "vertices",
                         length: float = 0.05, radius: float = None,
-                        show: bool = None) -> None:
+                        show: bool = None, color=None) -> None:
     """Mirrors structure.add_vector_quantity().
 
     Args:
-        target:     Name of the surface mesh this vector field is attached to.
+        target:     Name of the surface mesh (or point cloud) the vectors are attached to.
         field_name: Scene label for the vector quantity.
         vectors:    (N, 3) direction vectors (unit-normalized in the viewer).
-        defined_on: "vertices" or "faces".
+        defined_on: "vertices" (arrows start at the vertices) or "faces" (at the face
+                    barycenters; N must be the number of faces).
         length:     Total arrow length in scene units; adjust with the scene-panel slider.
         radius:     Arrow shaft/cone radius in scene units; defaults to length * 0.04.
         show:       None (default) follows the target: hidden while the target is hidden.
                     True shows the arrows and the target; False adds them hidden.
+                    Several vector quantities of one target can be shown at once.
+        color:      [r, g, b] in 0-1. None (default): the next colour of the viewer's
+                    palette not used by the target's other vector quantities.
     """
     _push(ser.vector_quantity(target, field_name, vectors, defined_on=defined_on,
-                              length=length, radius=radius, show=show))
+                              length=length, radius=radius, show=show, color=color))
 
 
 def register_vector_field(name: str, origins, vectors,
