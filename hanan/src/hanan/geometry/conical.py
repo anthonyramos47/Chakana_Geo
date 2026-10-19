@@ -312,7 +312,7 @@ def conical_mesh_smallest_curvature_sphere(vertices, axes, half_angles, adjacent
     for i in range(len(vertices)):   
         
         # merge pts_u and pts_v
-        pts = np.vstack((pts_u[i], pts_v[i]))
+        pts = np.asarray(pts_u[i] + pts_v[i], dtype=float).reshape(-1, 3)
 
         # Get the closest point to the vertex
         if len(pts) > 0:
@@ -353,7 +353,7 @@ def mesh_cone_axis_smallest_sphere(vertices, axes, adjacent_vertices):
     for i in range(len(vertices)):   
         
         # merge pts_u and pts_v
-        pts = np.vstack((pts_u[i], pts_v[i]))
+        pts = np.asarray(pts_u[i] + pts_v[i], dtype=float).reshape(-1, 3)
 
         # Get the closest point to the vertex
         if len(pts) > 0:
