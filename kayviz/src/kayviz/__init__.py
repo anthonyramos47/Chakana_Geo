@@ -50,6 +50,7 @@ from .webscope.script import (
     screenshot_views,
     save_grid,
     get_camera,
+    kill_servers,
     DEFAULT_VIEWS,
     FITTED_VIEWS,
     TIGHT_VIEWS,
@@ -81,6 +82,7 @@ __all__ = [
     "set_enabled", "remove", "clear", "push_objects",
     "set_user_callback", "register_app",
     "screenshot", "screenshot_views", "save_grid", "get_camera",
+    "kill_servers",
     "DEFAULT_VIEWS", "FITTED_VIEWS", "TIGHT_VIEWS",
     # app framework
     "Scene", "GUIApp", "ScriptApp", "CallbackApp", "mount_all",

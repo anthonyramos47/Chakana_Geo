@@ -136,6 +136,7 @@ class ScriptApp(BroadcastMixin, GUIApp):
                 "width":     payload.get("width", 900),
                 "height":    payload.get("height", 700),
                 "hide_grid": payload.get("hide_grid", True),
+                "background": payload.get("background", "white"),
             }
             app._shot_queue.append(job)
             return {"ok": True, "id": job["id"]}

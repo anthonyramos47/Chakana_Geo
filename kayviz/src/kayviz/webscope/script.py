@@ -282,7 +282,7 @@ def get_camera():
     return _last_camera
 
 
-def _capture(views, width, height, hide_grid, timeout):
+def _capture(views, width, height, hide_grid, timeout, background="white"):
     """Ask the browser to render `views` and return a list of PNG bytes."""
     import base64
 
@@ -302,7 +302,8 @@ def _capture(views, width, height, hide_grid, timeout):
     try:
         r = requests.post(f"{_url}/api/script/screenshot/request",
                           json={"views": views, "width": width,
-                                "height": height, "hide_grid": hide_grid},
+                                "height": height, "hide_grid": hide_grid,
+                                "background": background},
                           timeout=10)
         req = r.json()
     except requests.RequestException as e:
@@ -311,7 +312,8 @@ def _capture(views, width, height, hide_grid, timeout):
     if not req.get("ok"):
         raise RuntimeError(
             f"screenshot failed: {req.get('error', 'unknown')}. "
-            "Open the viewer tab (ws.show()) so a browser is connected."
+            f"Open {_url} in a browser (kayviz.show()) and keep the tab open; "
+            "a tab left from an earlier kernel points at a different server."
         )
 
     try:
@@ -336,7 +338,8 @@ def _capture(views, width, height, hide_grid, timeout):
 
 
 def screenshot(path, views=None, width: int = 900, height: int = 700,
-               hide_grid: bool = True, timeout: float = 30.0):
+               hide_grid: bool = True, timeout: float = 30.0,
+               background: str = "white"):
     """
     Capture the current scene from two (or more) views.
 
@@ -350,6 +353,8 @@ def screenshot(path, views=None, width: int = 900, height: int = 700,
         height:    pixel height of each view.
         hide_grid: hide the reference grid during capture.
         timeout:   seconds to wait for the browser to respond.
+        background: "white" (default), any CSS colour, "transparent" for an
+                   empty (alpha) background, or "viewer" to keep the viewer's.
 
     Returns:
         str | list[str]: the path(s) written.
@@ -357,7 +362,7 @@ def screenshot(path, views=None, width: int = 900, height: int = 700,
     Requires an open viewer tab — the pixels are produced by the browser.
     """
     views = list(views) if views is not None else list(DEFAULT_VIEWS)
-    blobs = _capture(views, width, height, hide_grid, timeout)
+    blobs = _capture(views, width, height, hide_grid, timeout, background)
 
     path = str(path)
     d = os.path.dirname(path)
@@ -381,14 +386,15 @@ def screenshot(path, views=None, width: int = 900, height: int = 700,
 
 
 def screenshot_views(views=None, width: int = 900, height: int = 700,
-                     hide_grid: bool = True, timeout: float = 30.0):
+                     hide_grid: bool = True, timeout: float = 30.0,
+                     background: str = "white"):
     """Capture the scene and return the raw PNG bytes per view (no file written).
 
     Useful for assembling a contact sheet across several scenes — see
-    ``save_grid``.
+    ``save_grid``.  ``background`` is as in ``screenshot``.
     """
     views = list(views) if views is not None else list(DEFAULT_VIEWS)
-    return _capture(views, width, height, hide_grid, timeout)
+    return _capture(views, width, height, hide_grid, timeout, background)
 
 
 def save_grid(path, rows, labels=None, pad: int = 8, bg=(255, 255, 255),
@@ -417,7 +423,13 @@ def save_grid(path, rows, labels=None, pad: int = 8, bg=(255, 255, 255),
     except ImportError as e:  # pragma: no cover - depends on environment
         raise RuntimeError("save_grid needs Pillow (pip install pillow)") from e
 
-    grid = [[Image.open(BytesIO(b)).convert("RGB") for b in row] for row in rows]
+    def _tile(b):
+        # Composite over bg so transparent captures don't turn black.
+        im = Image.open(BytesIO(b)).convert("RGBA")
+        base = Image.new("RGBA", im.size, tuple(bg) + (255,))
+        return Image.alpha_composite(base, im).convert("RGB")
+
+    grid = [[_tile(b) for b in row] for row in rows]
     if not grid or not grid[0]:
         raise ValueError("save_grid: no images")
 
@@ -533,7 +545,115 @@ def show(block: "str | bool" = "auto", app: str = None) -> None:
             print("\n[kayviz] Interrupted.")
 
 
+def kill_servers(ports=range(8000, 8100), host: str = "127.0.0.1",
+                 force: bool = False) -> list:
+    """
+    Stop every kayviz viewer server on this machine and reset this process's
+    viewer, so the next kayviz call starts a fresh server with an empty scene.
+
+    Each kernel/script that used kayviz runs its own server on the first free
+    port from 8000; they keep running until their process exits. This stops
+    them all — the processes themselves (e.g. Jupyter kernels) keep running.
+
+    Args:
+        ports: ports to scan.
+        host:  interface the servers listen on.
+        force: also terminate a standalone ``python -m kayviz`` process that
+               does not answer the shutdown request (never a Jupyter kernel).
+
+    Returns:
+        list[str]: URLs of the servers that were stopped.
+    """
+    global _url, _mode
+    import socket
+
+    stopped, found = [], 0
+    if _server is not None:                     # this process's own server
+        own = _server.url
+        _server.stop()
+        stopped.append(own)
+        print(f"[kayviz] Stopped {own} (this process)", flush=True)
+    _on_server_stopped()
+    _url, _mode = None, None
+
+    for port in ports:
+        base = f"http://{host}:{port}"
+        if base in stopped:
+            continue
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.settimeout(0.05)
+            if s.connect_ex((host, port)) != 0:
+                continue
+        if _ping_info(base) is None:            # something else, not kayviz
+            continue
+        found += 1
+
+        try:
+            r = requests.post(f"{base}/api/_shutdown", timeout=2)
+            ok = r.status_code == 200 and r.json().get("ok", False)
+        except (requests.RequestException, ValueError):
+            ok = False
+
+        proc = _port_owner(port)
+        who  = f" (pid {proc.pid})" if proc else ""
+        if ok:
+            # Wait for the port to actually go quiet before reporting it.
+            deadline = time.monotonic() + 5
+            while _ping_info(base) is not None and time.monotonic() < deadline:
+                time.sleep(0.1)
+            stopped.append(base)
+            print(f"[kayviz] Stopped {base}{who}", flush=True)
+            continue
+
+        cmd = " ".join(proc.cmdline()) if proc else ""
+        if force and proc and "kayviz" in cmd and "ipykernel" not in cmd:
+            proc.terminate()
+            stopped.append(base)
+            print(f"[kayviz] Terminated standalone viewer {base}{who}", flush=True)
+        elif "ipykernel" in cmd:
+            print(f"[kayviz] {base}{who} did not stop: it belongs to a Jupyter "
+                  "kernel running older kayviz code — restart that kernel.",
+                  flush=True)
+        else:
+            print(f"[kayviz] {base}{who} did not stop "
+                  "(pass force=True to terminate a standalone viewer).", flush=True)
+
+    if not stopped and not found:
+        print("[kayviz] No kayviz servers running.", flush=True)
+    return stopped
+
+
 # ── Internals ─────────────────────────────────────────────────────────────────
+
+def _on_server_stopped() -> None:
+    """Forget this process's server once it has shut down, so the next
+    kayviz call starts a new one instead of pushing to a dead loop."""
+    global _url, _server, _mode
+    if _mode == "local":
+        _url, _server, _mode = None, None, None
+    _opened.clear()
+    script = _registry.get_app("script")
+    if script is not None:                      # start the next one empty
+        script._buffer.clear()
+        script._shot_queue.clear()
+        script._shot_done.clear()
+
+
+def _port_owner(port: int):
+    """psutil.Process listening on *port*, or None (no psutil / not ours)."""
+    try:
+        import psutil
+    except ImportError:
+        return None
+    try:
+        for c in psutil.net_connections(kind="tcp"):
+            if (c.status == psutil.CONN_LISTEN and c.laddr
+                    and c.laddr.port == port and c.pid):
+                return psutil.Process(c.pid)
+    except psutil.Error:
+        pass
+    return None
+
 
 def _ensure_init() -> None:
     if _mode is None:

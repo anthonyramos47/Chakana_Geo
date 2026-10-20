@@ -21,8 +21,12 @@ def main(argv=None) -> None:
     args = parser.parse_args(argv)
 
     print(f"[kayviz] Shared viewer at http://{args.host}:{args.port}/?app=script", flush=True)
-    uvicorn.run(create_app(shared=True, default_app="script"),
-                host=args.host, port=args.port, log_level="warning")
+    app = create_app(shared=True, default_app="script")
+    server = uvicorn.Server(uvicorn.Config(app, host=args.host, port=args.port,
+                                           log_level="warning",
+                                           timeout_graceful_shutdown=2))
+    app.state.shutdown = lambda: setattr(server, "should_exit", True)
+    server.run()
 
 
 if __name__ == "__main__":

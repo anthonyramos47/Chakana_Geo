@@ -72,6 +72,7 @@ def create_app(apps=(), shared: bool = False, default_app: str | None = None) ->
         _script._bind_loop(asyncio.get_running_loop())
         yield
         _script._bind_loop(None)
+        _script._on_server_stopped()
 
     fastapi_app = FastAPI(title="kayviz", lifespan=lifespan)
     fastapi_app.add_middleware(_NoCacheMiddleware)
@@ -83,6 +84,16 @@ def create_app(apps=(), shared: bool = False, default_app: str | None = None) ->
         user_apps = [n for n in names if n != "script"]
         default = fastapi_app.state.default_app or (user_apps[-1] if user_apps else "script")
         return {"apps": names, "default": default, "shared": shared}
+
+    @fastapi_app.post("/api/_shutdown")
+    def shutdown():
+        # Used by kayviz.kill_servers(). Whoever runs the uvicorn server sets
+        # app.state.shutdown; a server under a foreign uvicorn has none.
+        stop = getattr(fastapi_app.state, "shutdown", None)
+        if stop is None:
+            return {"ok": False, "error": "this server cannot be stopped over HTTP"}
+        threading.Timer(0.2, stop).start()      # let this response go out first
+        return {"ok": True, "pid": os.getpid()}
 
     mount_all(fastapi_app)
 
@@ -118,8 +129,10 @@ class BackgroundServer:
             int(os.environ.get("KAYVIZ_PORT", 8000)), host)
         self.app = create_app()
         config = uvicorn.Config(self.app, host=self.host, port=self.port,
-                                log_level="warning", ws_max_size=256 * 1024 * 1024)
+                                log_level="warning", ws_max_size=256 * 1024 * 1024,
+                                timeout_graceful_shutdown=2)
         self._server = uvicorn.Server(config)
+        self.app.state.shutdown = lambda: setattr(self._server, "should_exit", True)
         self._thread = threading.Thread(target=self._server.run,
                                         name="kayviz-server", daemon=True)
 

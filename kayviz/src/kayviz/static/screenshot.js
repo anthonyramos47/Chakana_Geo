@@ -16,6 +16,28 @@
 
 const POLL_MS = 400;
 
+/**
+ * Swap the scene background for a capture.  `bg` is "viewer" (keep it),
+ * "transparent" (empty, alpha 0) or any CSS colour ("white", "#ffffff").
+ * Returns a function that restores the previous background.
+ */
+function applyBackground(THREE, renderer, scene, bg) {
+  if (!bg || bg === 'viewer') return () => {};
+  const oldBg     = scene.background;
+  const oldColor  = renderer.getClearColor(new THREE.Color());
+  const oldAlpha  = renderer.getClearAlpha();
+  if (bg === 'transparent') {
+    scene.background = null;
+    renderer.setClearColor(0x000000, 0);
+  } else {
+    scene.background = new THREE.Color(bg);
+  }
+  return () => {
+    scene.background = oldBg;
+    renderer.setClearColor(oldColor, oldAlpha);
+  };
+}
+
 /** Bounding sphere of every visible mesh in the scene, ignoring helpers. */
 function sceneBounds(THREE, scene, grid) {
   const box = new THREE.Box3();
@@ -121,9 +143,11 @@ export function startScreenshotBridge(THREE) {
       const camera   = window.__camera;
       const grid     = window.__grid;
       let images = [], error = null;
+      let restoreBg = () => {};
 
       try {
         if (grid && job.hide_grid) grid.visible = false;
+        restoreBg = applyBackground(THREE, renderer, scene, job.background);
         const bounds = sceneBounds(THREE, scene, grid) ||
                        { center: new THREE.Vector3(), radius: 1 };
         for (const v of job.views) {
@@ -136,6 +160,7 @@ export function startScreenshotBridge(THREE) {
         error = String(e && e.message ? e.message : e);
       } finally {
         if (grid) grid.visible = true;
+        restoreBg();
       }
 
       // Report the live camera alongside the images so ws.get_camera() can

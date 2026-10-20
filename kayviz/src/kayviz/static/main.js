@@ -31,8 +31,11 @@ window.addEventListener('unhandledrejection', e => {
 const container = document.getElementById('canvas-container');
 // preserveDrawingBuffer keeps the colour buffer readable after render(), which
 // is what canvas.toDataURL() needs for ws.screenshot(); without it the capture
-// comes back blank on most browsers.
-const renderer  = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+// comes back blank on most browsers.  alpha lets a capture use a transparent
+// background (screenshot background="transparent"); the viewer itself still
+// shows scene.background.
+const renderer  = new THREE.WebGLRenderer({ antialias: true, alpha: true,
+                                            preserveDrawingBuffer: true });
 renderer.setPixelRatio(window.devicePixelRatio);
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.shadowMap.enabled = true;
