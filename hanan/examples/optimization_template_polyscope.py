@@ -181,8 +181,8 @@ vertex_adjacency_list = mesh.vertex_adjacency_list()
 # towards a smooth surface.
 #
 # set_fairness(var_name, adjacency_list, dim, damp_factor, damp_iteration, w, ce)
-#   damp_factor / damp_iteration : the weight is multiplied by damp_factor every
-#   damp_iteration iterations, so it decays and lets the primary energies dominate.
+#   damp_factor / damp_iteration : iteration n uses w * damp_factor**n for the first
+#   damp_iteration iterations and 0 after, so the primary energies take over.
 
 optimizer.set_fairness("v", vertex_adjacency_list, dim=3,
                         damp_factor=0.8, damp_iteration=10, w=0.02, ce=True)

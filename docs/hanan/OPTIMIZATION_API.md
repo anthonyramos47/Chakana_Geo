@@ -151,9 +151,10 @@ dictionaries) is unchanged from earlier versions, e.g. `EdgeLength` registers as
 | `Corner` | `cos∠(v_l − c, v_r − c) − cos A` (normalisation lagged one iteration) | `add_objective_term(Corner(), (name, corners, adj, angle))` |
 | `ProximityReference` | `v_i − π(v_i)`, `π` = closest point on a reference mesh | `proximity_reference(name, V, F, w_prox, w_glide)` |
 | `GlideReference` | `(v_i − π(v_i)) · n_i` (normal lagged one iteration) | same call |
+| `BoundaryGlide` | `(I − t tᵀ)(v_i − π(v_i))`, `π` = closest point on reference boundary loops, `t` their tangent there; corners `v_i − c_i` (projection lagged one iteration) | `add_objective_term(BoundaryGlide(), (name, loops, corners, V_ref))` |
 
-The fairness terms decay their own weight: each iteration multiplies `w` by `damp_factor`,
-and after `damp_iteration` iterations the weight becomes 0.
+The fairness terms decay their own weight: iteration n = 1, …, `damp_iteration` uses
+`w · damp_factor**n`, and every later iteration uses 0.
 
 ## Writing an objective term
 

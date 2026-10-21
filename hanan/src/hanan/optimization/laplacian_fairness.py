@@ -44,7 +44,7 @@ class LaplacianFairness(ObjectiveTerm):
             adj_v   : List of lists where each sublist contains the indices of adjacent vertices for a given vertex.
             dim     : Dimensionality of the vertex positions (e.g., 2 or 3).
             damp_factor : Decrease factor for constraint weight.
-            damp_iteration: Number of iterations after which the weight is set 0.
+            damp_iteration: Number of damped iterations; the weight is 0 afterwards.
         """
         # Update the constraint name with the specific variable name.
         self.name = "Lap_Fairness_" + var_name
@@ -127,7 +127,9 @@ class LaplacianFairness(ObjectiveTerm):
 
 
     def grad(self, X):
-        if self.cont <= self.damp_iteration:
+        # Iteration n = 1..damp_iteration uses w0 * damp_factor**n, then 0
+        # (Tang et al. 2014, Sec. 4).
+        if self.cont < self.damp_iteration:
             self.w *= self.damp_factor
         else:
             self.w = 0

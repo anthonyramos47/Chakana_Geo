@@ -11,5 +11,6 @@ from .corner import Corner
 from .cyclicity import Cyclicity
 from .unit import Unit
 from .glide_reference import GlideReference
+from .boundary_glide import BoundaryGlide
 from .proximity_reference import ProximityReference
 from .prev_iteration_regularizer import PrevIterationRegularizer

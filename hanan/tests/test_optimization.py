@@ -7,7 +7,7 @@ from scipy.sparse import coo_matrix
 from hanan.optimization import (
     Cyclicity, EdgeLength, FixValueVariable, LaplacianFairness, ObjectiveTerm, Optimizer,
     Planarity, QuadFairness, StepControl, TargetValue, Unit, GlideReference,
-    ProximityReference,
+    ProximityReference, BoundaryGlide,
 )
 
 N = 4
@@ -66,11 +66,14 @@ def _cases(V, F, adj):
         "QuadFairness": (QuadFairness, ("v", inner, [adj[i] for i in inner], 3, 1.0, 10)),
         "TargetValue": (TargetValue, ("n_f", [0.3])),
         "FixValueVariable": (FixValueVariable, ("v", np.array([0, 4, 7]), [0.5])),
+        "BoundaryGlide": (BoundaryGlide, ("v", [[0, 1, 2, 3, 7, 11, 15, 14, 13, 12, 8, 4]],
+                                          [0, 3, 15, 12], V + [0, 0, 0.1])),
     }
 
 
 @pytest.mark.parametrize("name", ["Planarity", "Cyclicity", "Unit", "EdgeLength", "LaplacianFairness",
-                                  "QuadFairness", "TargetValue", "FixValueVariable"])
+                                  "QuadFairness", "TargetValue", "FixValueVariable",
+                                  "BoundaryGlide"])
 def test_jacobian_matches_finite_differences(name):
     rng = np.random.default_rng(0)
     V, F, adj = _grid(rng)
@@ -81,6 +84,22 @@ def test_jacobian_matches_finite_differences(name):
     fresh = cls(); fresh._initialize_objective(opt.X, opt.var_idx, *args)
     J, J_fd = _analytic(term, X), _finite_diff(fresh, X)
     assert np.abs(J - J_fd).max() <= 1e-5 * max(1.0, np.abs(J_fd).max())
+
+
+@pytest.mark.parametrize("name", ["LaplacianFairness", "QuadFairness"])
+def test_fairness_weight_schedule(name):
+    """Iteration n = 1..damp_iteration uses w0 * damp_factor**n, then 0."""
+    rng = np.random.default_rng(0)
+    V, F, adj = _grid(rng)
+    opt = _optimizer(rng, V, F)
+    cls, args = _cases(V, F, adj)[name]
+    term = cls(); term._initialize_objective(opt.X, opt.var_idx, *args[:-2], 0.5, 3)
+    term.set_weigth(1.0)
+    used = []
+    for _ in range(5):
+        term._computeGrad(opt.X)
+        used.append(term.w)
+    assert np.allclose(used, [0.5, 0.25, 0.125, 0.0, 0.0])
 
 
 @pytest.mark.parametrize("cls", [ProximityReference, GlideReference])

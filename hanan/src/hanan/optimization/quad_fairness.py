@@ -34,7 +34,7 @@ class QuadFairness(ObjectiveTerm):
             adj_v   : List of lists where each sublist contains the indices of adjacent vertices for a given vertex.
             dim     : Dimensionality of the vertex positions (e.g., 2 or 3).
             damp_factor : After certain number of iterations, the weight of the constraint is decreased by multiplying it with this factor.
-            damp_iteration : The number of iteration when the weight decrease is set to 0.
+            damp_iteration : Number of damped iterations; the weight is 0 afterwards.
         """
         # Update the constraint name with the specific variable name.
         self.name = "QuadFairness_" + var_name
@@ -97,7 +97,9 @@ class QuadFairness(ObjectiveTerm):
 
         
     def grad(self, X):
-        if self.count <= self.damp_iteration:
+        # Iteration n = 1..damp_iteration uses w0 * damp_factor**n, then 0
+        # (Tang et al. 2014, Sec. 4).
+        if self.count < self.damp_iteration:
             self.w *= self.damp_factor
         else:
             self.w = 0
