@@ -28,6 +28,7 @@ def surface_mesh(name: str, vertices, faces, color=(0.8, 0.8, 0.8),
     original face list (before triangulation) and returned as a second dict of
     type 'edge_child' targeting this mesh by name.  The caller must send both
     dicts to the viewer (the viewer registers the edge as a child of the mesh).
+    The viewer draws the edges as tubes; edge_radius=0 means 3% of the median edge length.
     """
     verts = np.array(vertices, dtype=np.float32)
     faces_list = [np.asarray(f).flatten().tolist() for f in faces]

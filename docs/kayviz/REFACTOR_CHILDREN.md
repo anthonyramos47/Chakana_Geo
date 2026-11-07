@@ -41,7 +41,7 @@ Methods (no-ops in base; subclasses override):
 
 Constructor: `new EdgeChild({ mesh, color, radius })`
 - `key = 'edges'`, `type = 'edges'`.
-- Fields: `mesh: THREE.Object3D` (LineSegments or merged tube Mesh), `color: [r,g,b]`, `radius: number` (0 = LineSegments, >0 = tube mesh).
+- Fields: `mesh: THREE.Object3D` (LineSegments or merged tube Mesh), `color: [r,g,b]`, `radius: number` (always a tube mesh; 0 on creation means 3% of the median edge length).
 - Stores no source verts/edges itself — when radius changes, the **viewer** must rebuild via `viewer._buildCurveObj(parent.opts.edgeVerts, parent.opts.edgeIdx, color, radius)` from the parent's stashed edge data (see §2.1). The new `EdgeChild` instance replaces the old.
 
 Methods:

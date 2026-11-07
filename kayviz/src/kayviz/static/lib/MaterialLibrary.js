@@ -15,7 +15,7 @@
  *   'flat'       MeshBasicMaterial    — unlit flat colour
  *   'depth'      MeshDepthMaterial    — depth visualisation
  *   'toon'       MeshToonMaterial     — cel-shaded cartoon look
- *   'physical'   MeshPhysicalMaterial — PBR (metalness / roughness)
+ *   'physical'   MeshPhysicalMaterial — PBR (metalness / roughness / clearcoat), lit by scene.environment
  *
  * Custom GLSL shaders
  * ───────────────────
@@ -139,11 +139,13 @@ const _BUILTINS = {
     type: 'toon',
     color: [0.8, 0.8, 0.8],
   },
-  physical: {
+  physical: {                 // reflects scene.environment (main.js) — glossy, unlike lambert/phong
     type: 'physical',
     color: [0.8, 0.8, 0.8],
     metalness: 0.0,
-    roughness: 0.5,
+    roughness: 0.35,
+    clearcoat: 0.5,
+    clearcoatRoughness: 0.15,
     side: 'double',
   },
   blinn_phong: {
@@ -223,12 +225,12 @@ export class MaterialLibrary {
 
     switch (def.type) {
       case 'lambert':
-        return new THREE.MeshLambertMaterial({ color: col, side, transparent, opacity });
+        return new THREE.MeshLambertMaterial({ color: col, side, transparent, opacity, depthWrite: !transparent });
 
       case 'phong':
         return new THREE.MeshPhongMaterial({
           color: col, shininess: def.shininess ?? 60,
-          side, transparent, opacity,
+          side, transparent, opacity, depthWrite: !transparent,
         });
 
       case 'physical':
@@ -236,15 +238,17 @@ export class MaterialLibrary {
           color: col,
           metalness:  def.metalness  ?? 0.0,
           roughness:  def.roughness  ?? 0.5,
-          side, transparent, opacity,
+          clearcoat:          def.clearcoat          ?? 0.0,
+          clearcoatRoughness: def.clearcoatRoughness ?? 0.0,
+          side, transparent, opacity, depthWrite: !transparent,
         });
 
       case 'toon':
-        return new THREE.MeshToonMaterial({ color: col, side, transparent, opacity });
+        return new THREE.MeshToonMaterial({ color: col, side, transparent, opacity, depthWrite: !transparent });
 
       case 'basic':
         return new THREE.MeshBasicMaterial({
-          color: col, wireframe: def.wireframe ?? false, side, transparent, opacity,
+          color: col, wireframe: def.wireframe ?? false, side, transparent, opacity, depthWrite: !transparent,
         });
 
       case 'normal':

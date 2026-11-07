@@ -12,6 +12,7 @@
 
 import * as THREE from 'three';
 import { OrbitControls }  from 'three/addons/controls/OrbitControls.js';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { LabelRenderer }  from './LabelRenderer.js';
 import { startScreenshotBridge } from './screenshot.js';
 
@@ -76,7 +77,14 @@ keyLight.position.set(4, 8, 6);
 fillLight.position.set(-4, 2, -4);
 scene.add(ambient, keyLight, fillLight);
 
-window.__lights = { ambient, keyLight, fillLight };   // consumed by app_loader.js
+// Environment map (procedural room, no texture download): only MeshStandard/MeshPhysical
+// materials use it, so the 'physical' shader gets reflections the others don't have.
+const pmrem = new THREE.PMREMGenerator(renderer);
+scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+scene.environmentIntensity = 0.6;
+pmrem.dispose();
+
+window.__lights = { ambient, keyLight, fillLight, scene };   // consumed by app_loader.js
 
 // Exposed for the screenshot bridge (frontend/screenshot.js).
 window.__renderer = renderer;
@@ -179,6 +187,49 @@ const _gizmo = (() => {
 
   return { draw };
 })();
+
+// ── Background toggle (sun/moon button, right of the gizmo) ──────────────────
+// Switches the scene between dark and light background; remembered across reloads.
+const _BG_THEMES = {
+  dark:  { bg: 0x1a1a1a, grid: 0x333333, icon: '☀️', title: 'Light background' },
+  light: { bg: 0xffffff, grid: 0xcccccc, icon: '🌙', title: 'Dark background'  },
+};
+const _bgButton = document.createElement('button');
+Object.assign(_bgButton.style, {
+  position:     'fixed',
+  bottom:       '12px',
+  left:         '416px',   // just right of the gizmo (288 + 120 + 8)
+  width:        '32px',
+  height:       '32px',
+  fontSize:     '18px',
+  lineHeight:   '1',
+  padding:      '0',
+  cursor:       'pointer',
+  background:   '#2a2a2a',
+  border:       '1px solid #444',
+  borderRadius: '50%',
+  zIndex:       '1001',
+});
+function setBackgroundTheme(name) {
+  const t = _BG_THEMES[name] ?? _BG_THEMES.dark;
+  scene.background.setHex(t.bg);
+  document.body.style.background = '#' + t.bg.toString(16).padStart(6, '0');
+  // GridHelper bakes its colour into vertex colours, so rewrite the attribute.
+  const gc = new THREE.Color(t.grid), ca = grid.geometry.attributes.color;
+  for (let i = 0; i < ca.count; i++) ca.setXYZ(i, gc.r, gc.g, gc.b);
+  ca.needsUpdate = true;
+  _bgButton.textContent = t.icon;
+  _bgButton.title       = t.title;
+  _bgButton.dataset.theme = name;
+  try { localStorage.setItem('kayviz.background', name); } catch (_) {}
+}
+_bgButton.addEventListener('click', () =>
+  setBackgroundTheme(_bgButton.dataset.theme === 'dark' ? 'light' : 'dark'));
+document.body.appendChild(_bgButton);
+let _savedBg = null;
+try { _savedBg = localStorage.getItem('kayviz.background'); } catch (_) {}
+setBackgroundTheme(_savedBg === 'light' ? 'light' : 'dark');
+window.__setBackgroundTheme = setBackgroundTheme;
 
 // ── Render loop ───────────────────────────────────────────────────────────────
 function animate() {

@@ -30,14 +30,19 @@ export class Viewer {
     this.scene    = scene;
     this.matLib   = matLib;
     this._objects = new Map();  // name → SceneEntry
+    // one shader for every surface mesh (scene panel "Shader"); kept across reloads
+    let saved = null;
+    try { saved = localStorage.getItem('kayviz.material'); } catch (_) {}
+    this.material = (saved && matLib.has(saved)) ? saved : 'physical';
   }
 
   // ── Registration ─────────────────────────────────────────────────────────
 
   registerSurfaceMesh(name, vertices, faces, faceSize = 3,
                       color = [0.8, 0.8, 0.8], opacity = 1.0,
-                      material = 'physical') {
+                      material = null) {
     this._remove(name);
+    material = material ?? this.material;
     const geo  = this._buildMeshGeo(vertices, faces, faceSize);
     const mat  = this.matLib.build(material, color, opacity);
     const mesh = new THREE.Mesh(geo, mat);
@@ -121,6 +126,7 @@ export class Viewer {
     e.opacity                    = t;
     e.mesh.material.opacity      = t;
     e.mesh.material.transparent  = t < 1.0;
+    e.mesh.material.depthWrite   = t >= 1.0;   // translucent meshes must not hide what is behind them
     e.mesh.material.needsUpdate  = true;
   }
 
@@ -194,6 +200,21 @@ export class Viewer {
     this._emit();
   }
 
+  /** Switch every surface mesh (and the ones registered later) to the shader `matName`. */
+  setGlobalMaterial(matName) {
+    if (!this.matLib.has(matName)) return;
+    this.material = matName;
+    try { localStorage.setItem('kayviz.material', matName); } catch (_) {}
+    for (const [name, e] of this._objects) {
+      if (e.type !== 'surface_mesh') continue;
+      this.matLib.applyTo(e.mesh, matName, e.color, e.opacity);
+      e.opts.material = matName;
+      if (e.mesh.geometry.hasAttribute('color')) e.mesh.material.vertexColors = true;
+      e.mesh.material.needsUpdate = true;
+    }
+    this._emit();
+  }
+
   setUniform(name, uniformName, value) {
     const e = this._objects.get(name);
     if (!e || !(e.mesh.material instanceof THREE.ShaderMaterial)) return;
@@ -210,7 +231,9 @@ export class Viewer {
     // Cache source data on parent for radius-change rebuilds
     e.opts.edgeVerts = edgeVerts;
     e.opts.edgeIdx   = edgeIdx;
+    e.opts.edgeAutoRadius = null;     // recomputed from these edges
     if (e.children.has('edges')) e.removeChild('edges', this.scene, e.mesh);
+    radius = this._edgeRadius(e, radius);
     const mesh = this._buildCurveObj(edgeVerts, edgeIdx, color, radius);
     mesh.name = `${parentName}::edges`;
     this.scene.add(mesh);
@@ -230,6 +253,7 @@ export class Viewer {
     const child = e.children.get('edges');   if (!child) return;
     const { color, visible } = child;
     e.removeChild('edges', this.scene, e.mesh);
+    radius = this._edgeRadius(e, radius);
     const mesh = this._buildCurveObj(e.opts.edgeVerts, e.opts.edgeIdx, color, radius);
     mesh.name    = `${parentName}::edges`;
     mesh.visible = visible;
@@ -258,7 +282,7 @@ export class Viewer {
       return;
     }
     if (!e.opts.edgeVerts || !e.opts.edgeIdx) return;
-    this.addEdgeChild(parentName, e.opts.edgeVerts, e.opts.edgeIdx, [0.1, 0.1, 0.1], 0);
+    this.addEdgeChild(parentName, e.opts.edgeVerts, e.opts.edgeIdx, [0.1, 0.1, 0.1], 0);   // 0: automatic radius
   }
 
   // ── Scalar quantity ───────────────────────────────────────────────────────
@@ -449,7 +473,7 @@ export class Viewer {
         case 'surface_mesh': {
           this.registerSurfaceMesh(obj.name, obj.vertices, obj.faces,
                                    obj.face_size ?? 3, obj.color ?? [0.8,0.8,0.8],
-                                   obj.opacity ?? 1.0, obj.material ?? 'physical');
+                                   obj.opacity ?? 1.0, obj.material ?? null);
           const en = this._objects.get(obj.name);
           if (en) {
             if (obj.tris_per_face)   en.opts.trisPerFace = obj.tris_per_face;
@@ -532,41 +556,78 @@ export class Viewer {
     }
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-    const mat = new THREE.LineBasicMaterial({ color: this._rgb(color), depthTest: false });
+    const mat = new THREE.LineBasicMaterial({ color: this._rgb(color) });
     return new THREE.LineSegments(geo, mat);
   }
 
+  /**
+   * Radius of an edge overlay: `radius` if > 0, else 3% of the median edge length.
+   * Edges are always tubes: zero-width lines can't be occluded reliably and showed through objects.
+   */
+  _edgeRadius(e, radius) {
+    e.opts.edgeAutoRadius ??= this._autoEdgeRadius(e.opts.edgeVerts, e.opts.edgeIdx);
+    return radius > 0 ? radius : e.opts.edgeAutoRadius;
+  }
+
+  _autoEdgeRadius(V, E) {
+    const m = E.length / 2;
+    if (!m) return 1e-3;
+    const step = Math.max(1, Math.floor(m / 2000));       // a sample is enough for the median
+    const L = [];
+    for (let k = 0; k < m; k += step) {
+      const i = E[2*k] * 3, j = E[2*k + 1] * 3;
+      L.push(Math.hypot(V[i] - V[j], V[i+1] - V[j+1], V[i+2] - V[j+2]));
+    }
+    L.sort((a, b) => a - b);
+    return Math.max(0.03 * L[L.length >> 1], 1e-6);
+  }
+
   _buildTubeNetwork(vertices, edges, color, radius) {
-    const segs = 6;
+    // open prisms (no caps), written straight into typed arrays: fast enough for ~10^5 edges
     const mat  = new THREE.MeshPhongMaterial({
       color: this._rgb(color), shininess: 30,
       polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -4,
     });
-
-    const merged = [];
-    const matrix = new THREE.Matrix4();
-    const up     = new THREE.Vector3(0, 1, 0);
-
-    for (let k = 0; k < edges.length; k += 2) {
-      const i  = edges[k], j = edges[k + 1];
-      const pa = new THREE.Vector3(vertices[i*3], vertices[i*3+1], vertices[i*3+2]);
-      const pb = new THREE.Vector3(vertices[j*3], vertices[j*3+1], vertices[j*3+2]);
-      const length = pa.distanceTo(pb);
-      if (length < 1e-9) continue;
-      const mid = pa.clone().add(pb).multiplyScalar(0.5);
-      const dir = pb.clone().sub(pa).normalize();
-      const quat = dir.dot(up) < -0.9999
-        ? new THREE.Quaternion(1, 0, 0, 0)
-        : new THREE.Quaternion().setFromUnitVectors(up, dir);
-      matrix.compose(mid, quat, new THREE.Vector3(1, 1, 1));
-      const cyl = new THREE.CylinderGeometry(radius, radius, length, segs, 1, false);
-      cyl.applyMatrix4(matrix);
-      merged.push(cyl);
+    const m    = edges.length / 2;
+    const segs = m > 20000 ? 4 : 6;
+    const pos  = new Float32Array(m * 2 * segs * 3);
+    const nrm  = new Float32Array(m * 2 * segs * 3);
+    const idx  = new Uint32Array(m * segs * 6);
+    const cs   = Array.from({ length: segs }, (_, s) => Math.cos(2 * Math.PI * s / segs));
+    const sn   = Array.from({ length: segs }, (_, s) => Math.sin(2 * Math.PI * s / segs));
+    let nv = 0, ni = 0;
+    for (let k = 0; k < m; k++) {
+      const i = edges[2*k] * 3, j = edges[2*k + 1] * 3;
+      const ax = vertices[i], ay = vertices[i+1], az = vertices[i+2];
+      let dx = vertices[j] - ax, dy = vertices[j+1] - ay, dz = vertices[j+2] - az;
+      const len = Math.hypot(dx, dy, dz);
+      if (len < 1e-12) continue;
+      dx /= len; dy /= len; dz /= len;
+      // u ⟂ d (cross with the axis least aligned with d), w = d × u
+      let ux, uy, uz;
+      if (Math.abs(dx) < 0.9) { ux = 0; uy = dz; uz = -dy; } else { ux = -dz; uy = 0; uz = dx; }
+      const ul = Math.hypot(ux, uy, uz); ux /= ul; uy /= ul; uz /= ul;
+      const wx = dy*uz - dz*uy, wy = dz*ux - dx*uz, wz = dx*uy - dy*ux;
+      for (let end = 0; end < 2; end++) {
+        const px = end ? vertices[j] : ax, py = end ? vertices[j+1] : ay, pz = end ? vertices[j+2] : az;
+        for (let s = 0; s < segs; s++) {
+          const nx = cs[s]*ux + sn[s]*wx, ny = cs[s]*uy + sn[s]*wy, nz = cs[s]*uz + sn[s]*wz;
+          const o = (nv + end*segs + s) * 3;
+          pos[o] = px + radius*nx; pos[o+1] = py + radius*ny; pos[o+2] = pz + radius*nz;
+          nrm[o] = nx; nrm[o+1] = ny; nrm[o+2] = nz;
+        }
+      }
+      for (let s = 0; s < segs; s++) {
+        const a = nv + s, b = nv + (s + 1) % segs, c = a + segs, d = b + segs;
+        idx[ni++] = a; idx[ni++] = b; idx[ni++] = d;
+        idx[ni++] = a; idx[ni++] = d; idx[ni++] = c;
+      }
+      nv += 2 * segs;
     }
-
-    if (merged.length === 0) return new THREE.Mesh(new THREE.BufferGeometry(), mat);
-    const geo = mergeGeometries(merged, false);
-    merged.forEach(g => g.dispose());
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(pos.subarray(0, nv * 3), 3));
+    geo.setAttribute('normal',   new THREE.BufferAttribute(nrm.subarray(0, nv * 3), 3));
+    geo.setIndex(new THREE.BufferAttribute(idx.subarray(0, ni), 1));
     return new THREE.Mesh(geo, mat);
   }
 

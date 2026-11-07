@@ -13,8 +13,9 @@ export class LightingPanel {
    * @param {THREE.AmbientLight}     ambient
    * @param {THREE.DirectionalLight} keyLight
    * @param {THREE.DirectionalLight} fillLight
+   * @param {THREE.Scene}            [scene]   — for the environment-map intensity
    */
-  constructor(container, ambient, keyLight, fillLight) {
+  constructor(container, ambient, keyLight, fillLight, scene = null) {
     this.gui = new GUI({ container, title: 'Lighting' });
 
     // ── Ambient ───────────────────────────────────────────────────────────
@@ -22,6 +23,13 @@ export class LightingPanel {
     const af = this.gui.addFolder('Ambient');
     af.add(ambState, 'intensity', 0, 2, 0.01).name('Intensity')
       .onChange(v => { ambient.intensity = v; });
+
+    // ── Environment map (reflections of the 'physical' shader) ────────────
+    if (scene?.environment) {
+      const envState = { intensity: scene.environmentIntensity ?? 1.0 };
+      af.add(envState, 'intensity', 0, 2, 0.01).name('Environment')
+        .onChange(v => { scene.environmentIntensity = v; });
+    }
 
     // ── Key light ─────────────────────────────────────────────────────────
     const keyState = {

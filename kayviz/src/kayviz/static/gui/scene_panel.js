@@ -7,7 +7,7 @@
  *   ● colour picker        (colour swatch)
  *   ● opacity slider       (surface meshes only)
  *   ● radius slider        (point clouds only)
- *   ● material dropdown    (surface meshes only — from MaterialLibrary)
+ *   (the shader is global: one "Shader" dropdown above the list, from MaterialLibrary)
  *   ● remove button        (× button)
  *
  * Children (EdgeChild, ScalarChild, VectorChild) each get their own typed row
@@ -41,8 +41,10 @@ export class ScenePanel {
       const { ambient, keyLight, fillLight } = opts.lights;
       const slot = document.createElement('div');
       this._root.insertBefore(slot, this._root.querySelector('#scene-panel-body'));
-      new LightingPanel(slot, ambient, keyLight, fillLight);
+      new LightingPanel(slot, ambient, keyLight, fillLight, opts.lights.scene);
     }
+    this._root.insertBefore(this._buildShaderRow(),
+                            this._root.querySelector('#scene-panel-body'));
 
     // Rebuild whenever the viewer's object list changes
     document.addEventListener('viewer-changed', () => this._rebuild());
@@ -50,6 +52,33 @@ export class ScenePanel {
   }
 
   // ── DOM construction ──────────────────────────────────────────────────────
+
+  /** One shader for all surface meshes (viewer.setGlobalMaterial). */
+  _buildShaderRow() {
+    const line = document.createElement('div');
+    Object.assign(line.style, {
+      display: 'flex', alignItems: 'center', gap: '6px',
+      padding: '6px 10px', borderBottom: '1px solid #333',
+    });
+    const label = document.createElement('span');
+    label.textContent = 'Shader';
+    Object.assign(label.style, { color: '#bbb', flexShrink: '0' });
+    const select = document.createElement('select');
+    Object.assign(select.style, {
+      flex: '1', background: '#2a2a2a', color: '#eee', border: '1px solid #444',
+      borderRadius: '3px', fontSize: '11px', padding: '1px 3px', cursor: 'pointer',
+    });
+    for (const mName of Materials.list()) {
+      const opt    = document.createElement('option');
+      opt.value    = mName;
+      opt.text     = mName;
+      opt.selected = (mName === this._viewer.material);
+      select.appendChild(opt);
+    }
+    select.addEventListener('change', e => this._viewer.setGlobalMaterial(e.target.value));
+    line.append(label, select);
+    return line;
+  }
 
   _buildRoot() {
     const root = document.createElement('div');
@@ -261,46 +290,8 @@ export class ScenePanel {
       ]));
     }
 
-    // Material dropdown (surface meshes only) — on its own line below
+    // Surface meshes: the shader is global (scene panel "Shader", above the list)
     if (entry.type === 'surface_mesh') {
-      const matLine = document.createElement('div');
-      Object.assign(matLine.style, {
-        display:     'flex',
-        alignItems:  'center',
-        gap:         '6px',
-        marginTop:   '4px',
-        paddingLeft: '20px',
-      });
-
-      const matLabel = document.createElement('span');
-      matLabel.textContent = 'shader';
-      Object.assign(matLabel.style, { color: '#888', fontSize: '10px', flexShrink: '0' });
-
-      const matSelect = document.createElement('select');
-      Object.assign(matSelect.style, {
-        flex:        '1',
-        background:  '#2a2a2a',
-        color:       '#eee',
-        border:      '1px solid #444',
-        borderRadius: '3px',
-        fontSize:    '11px',
-        padding:     '1px 3px',
-        cursor:      'pointer',
-      });
-      for (const mName of Materials.list()) {
-        const opt   = document.createElement('option');
-        opt.value   = mName;
-        opt.text    = mName;
-        opt.selected = (mName === (entry.opts?.material ?? 'physical'));
-        matSelect.appendChild(opt);
-      }
-      matSelect.addEventListener('change', e => {
-        this._viewer.setMaterial(name, e.target.value);
-      });
-
-      matLine.append(matLabel, matSelect);
-      row.appendChild(matLine);
-
       // Show edges checkbox
       const edgeLine = document.createElement('div');
       Object.assign(edgeLine.style, {
@@ -442,14 +433,16 @@ export class ScenePanel {
     const { row } = this._buildChildRowSkeleton(
       parentName, childKey, child, 'edges', '#3a2a2a', eye);
 
-    // Color + tube radius sub-row
+    // Color + tube radius sub-row (range fixed by the automatic radius, so it doesn't move while dragging)
+    const auto = this._viewer._objects.get(parentName)?.opts.edgeAutoRadius ?? child.radius;
     const colorPicker = this._colorPicker(child.color ?? [0.1, 0.1, 0.1], hex => {
       this._viewer.setEdgeColor(parentName, this._hexToRgb(hex));
     });
     const subRow = this._subRow([
       colorPicker,
       this._label('tube r'),
-      this._sliderOnly(child.radius ?? 0, 0, 0.02, 0.0005,
+      // edges are always tubes (radius > 0); the range follows the automatic radius
+      this._sliderOnly(child.radius, auto / 10, Math.max(0.02, 10 * auto), auto / 20,
         v => this._viewer.setEdgeRadius(parentName, v)),
     ]);
     subRow.style.paddingLeft = '20px';
@@ -676,7 +669,7 @@ export class ScenePanel {
   /** Compact labelled range slider. Returns { wrap, input, valDisplay }.
    *  Pass a custom `fmtFn` to override the value display format. */
   _slider(labelText, value, min, max, step, onChange, fmtFn = null) {
-    const decimals = step < 0.01 ? 4 : step < 0.1 ? 3 : 2;
+    const decimals = step < 0.0001 ? 6 : step < 0.01 ? 4 : step < 0.1 ? 3 : 2;
     const fmt = fmtFn ?? (v => v.toFixed(decimals));
 
     const wrap  = document.createElement('label');
@@ -778,7 +771,7 @@ export class ScenePanel {
 
   /** Slider + value display only (no outer label), fills available width. */
   _sliderOnly(value, min, max, step, onChange) {
-    const decimals = step < 0.01 ? 4 : step < 0.1 ? 3 : 2;
+    const decimals = step < 0.0001 ? 6 : step < 0.01 ? 4 : step < 0.1 ? 3 : 2;
     const fmt = v => v.toFixed(decimals);
 
     const wrap = document.createElement('div');

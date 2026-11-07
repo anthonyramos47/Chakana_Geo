@@ -104,6 +104,12 @@ viewer.setUniform('Base mesh', 'uTime', performance.now() / 1000);
 viewer.setUniform('Base mesh', 'uColor', new THREE.Color(1, 0.5, 0));
 ```
 
+### Background theme
+
+A sun/moon button right of the axis gizmo toggles the scene background between
+dark (`#1a1a1a`) and white; the grid is recoloured to match. The choice is saved
+in `localStorage['kayviz.background']`. From code: `window.__setBackgroundTheme('light' | 'dark')`.
+
 ### Scalar quantities
 
 ```javascript
@@ -321,8 +327,16 @@ Each row provides:
 - Color picker
 - Opacity slider (surface meshes)
 - Radius slider (point clouds)
-- **Shader / material dropdown** (surface meshes — lists all `MaterialLibrary` names)
 - Remove button
+
+Above the list, one **Shader** dropdown (all `MaterialLibrary` names) sets the shader of every
+surface mesh, including those registered later (`viewer.setGlobalMaterial(name)`, remembered in
+`localStorage`). The `physical` shader reflects `scene.environment`, a procedural `RoomEnvironment`
+(intensity: Lighting → Ambient → Environment); the other shaders ignore it.
+
+Surface-mesh edges ("show edges") are always tubes (`radius = 0` → 3% of the median edge length):
+zero-width lines can't be occluded reliably and showed through objects. Translucent meshes
+(`opacity < 1`) don't write depth, so nothing behind them is hidden.
 
 ```javascript
 import { ScenePanel } from './gui/scene_panel.js';
