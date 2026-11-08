@@ -9,7 +9,6 @@
  * ──────────────
  *   'lambert'    MeshLambertMaterial  — fast diffuse, no specular
  *   'phong'      MeshPhongMaterial    — diffuse + specular highlights
- *   'matcap'     MeshMatcapMaterial   — view-space shading from a texture
  *   'normal'     MeshNormalMaterial   — RGB = world-space normals (debug)
  *   'wireframe'  MeshBasicMaterial    — wireframe overlay
  *   'flat'       MeshBasicMaterial    — unlit flat colour
@@ -82,21 +81,6 @@ void main() {
 }
 `;
 
-const _MATCAP_FRAG = /* glsl */ `
-// View-space matcap — works without a texture by deriving a gradient from
-// the normal.  Replace uMatcap with a sampler2D for a real matcap texture.
-varying vec3 vNormal;
-
-void main() {
-  vec3 N = normalize(vNormal);
-  // Map view-space XY normal to a simple warm-cool colour gradient.
-  vec3 warm = vec3(0.95, 0.70, 0.30);
-  vec3 cool = vec3(0.15, 0.40, 0.75);
-  float t  = 0.5 + 0.5 * N.y;
-  gl_FragColor = vec4(mix(cool, warm, t), 1.0);
-}
-`;
-
 // ── Built-in material definitions ───────────────────────────────────────────
 
 const _BUILTINS = {
@@ -109,13 +93,6 @@ const _BUILTINS = {
     type: 'phong',
     color: [0.8, 0.8, 0.8],
     shininess: 60,
-    side: 'double',
-  },
-  matcap: {
-    type: 'shader',
-    vertexShader:   _DEFAULT_VERT,
-    fragmentShader: _MATCAP_FRAG,
-    uniforms: {},
     side: 'double',
   },
   normal: {

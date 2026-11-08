@@ -97,7 +97,6 @@ viewer.remove(name);                        // remove from scene + dispose
 // Color and opacity are preserved from the registration call.
 viewer.setMaterial('Base mesh', 'phong');
 viewer.setMaterial('Base mesh', 'blinn_phong');
-viewer.setMaterial('Base mesh', 'matcap');
 viewer.setMaterial('Base mesh', 'myCustomShader');
 
 // Update a GLSL uniform at runtime (ShaderMaterials only)
@@ -201,7 +200,6 @@ const viewer = new Viewer(scene, myLib);
 | `lambert`     | MeshLambertMaterial      | Fast diffuse, no specular. Default.|
 | `phong`       | MeshPhongMaterial        | Diffuse + specular highlights.     |
 | `blinn_phong` | ShaderMaterial           | Custom GLSL Blinn-Phong, two lights|
-| `matcap`      | ShaderMaterial           | View-space warm-cool gradient      |
 | `physical`    | MeshPhysicalMaterial     | PBR metalness/roughness            |
 | `toon`        | MeshToonMaterial         | Cel-shaded cartoon                 |
 | `wireframe`   | MeshBasicMaterial        | Wireframe overlay                  |

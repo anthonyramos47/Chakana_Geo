@@ -195,7 +195,7 @@ import { Materials } from 'kayviz/lib/MaterialLibrary.js';
 Materials.register('gold', { type: 'physical', color: [1.0, 0.76, 0.33],
                              metalness: 1.0, roughness: 0.2 });
 window.__viewer.setMaterial('Base', 'gold');
-window.__viewer.setMaterial('Base', 'phong');      // built-ins: lambert, phong, matcap, normal,
+window.__viewer.setMaterial('Base', 'phong');      // built-ins: lambert, phong, normal,
                                                    // wireframe, flat, depth, toon, physical
 ```
 
