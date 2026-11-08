@@ -112,7 +112,8 @@ function renderView(THREE, renderer, scene, camera, bounds, view, width, height)
   }
   camera.updateProjectionMatrix();
 
-  renderer.render(scene, camera);
+  // __renderFrame draws through the studio composer when it is on.
+  (window.__renderFrame ?? (() => renderer.render(scene, camera)))();
   const url = renderer.domElement.toDataURL('image/png');
 
   // restore

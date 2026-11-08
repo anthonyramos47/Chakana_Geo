@@ -41,7 +41,8 @@ export class ScenePanel {
       const { ambient, keyLight, fillLight } = opts.lights;
       const slot = document.createElement('div');
       this._root.insertBefore(slot, this._root.querySelector('#scene-panel-body'));
-      new LightingPanel(slot, ambient, keyLight, fillLight, opts.lights.scene);
+      new LightingPanel(slot, ambient, keyLight, fillLight, opts.lights.scene,
+                        opts.lights.studio);
     }
     this._root.insertBefore(this._buildShaderRow(),
                             this._root.querySelector('#scene-panel-body'));

@@ -15,6 +15,7 @@ import { OrbitControls }  from 'three/addons/controls/OrbitControls.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { LabelRenderer }  from './LabelRenderer.js';
 import { startScreenshotBridge } from './screenshot.js';
+import { Studio }         from './lib/Studio.js';
 
 // Catch unhandled JS errors and show them in the status bar
 window.addEventListener('error', e => {
@@ -85,6 +86,13 @@ scene.environmentIntensity = 0.6;
 pmrem.dispose();
 
 window.__lights = { ambient, keyLight, fillLight, scene };   // consumed by app_loader.js
+
+// Studio render mode (AO, soft floor shadow, softbox environment); see lib/Studio.js.
+const studio = new Studio(renderer, scene, camera, { keyLight, grid });
+window.__studio = studio;
+window.__lights.studio = studio;
+// One frame of the current mode; also used by the screenshot bridge.
+window.__renderFrame = () => studio.enabled ? studio.render() : renderer.render(scene, camera);
 
 // Exposed for the screenshot bridge (frontend/screenshot.js).
 window.__renderer = renderer;
@@ -210,9 +218,12 @@ Object.assign(_bgButton.style, {
   borderRadius: '50%',
   zIndex:       '1001',
 });
+const _bgColor = new THREE.Color(0x1a1a1a);
 function setBackgroundTheme(name) {
   const t = _BG_THEMES[name] ?? _BG_THEMES.dark;
-  scene.background.setHex(t.bg);
+  _bgColor.setHex(t.bg);
+  if (studio.enabled) studio.applyTheme(name);
+  else { studio.theme = name; scene.background = _bgColor; }
   document.body.style.background = '#' + t.bg.toString(16).padStart(6, '0');
   // GridHelper bakes its colour into vertex colours, so rewrite the attribute.
   const gc = new THREE.Color(t.grid), ca = grid.geometry.attributes.color;
@@ -231,11 +242,29 @@ try { _savedBg = localStorage.getItem('kayviz.background'); } catch (_) {}
 setBackgroundTheme(_savedBg === 'light' ? 'light' : 'dark');
 window.__setBackgroundTheme = setBackgroundTheme;
 
+// ── Studio toggle (next to the background button) ───────────────────────────
+const _studioButton = _bgButton.cloneNode();
+_studioButton.style.left = '456px';
+_studioButton.textContent = '\uD83D\uDCA1';
+function setStudio(on) {
+  studio.setEnabled(on);
+  if (!on) scene.background = _bgColor;
+  _studioButton.title = on ? 'Studio render: on (AO + soft shadows)' : 'Studio render: off';
+  _studioButton.style.background = on ? '#6a5a20' : '#2a2a2a';
+  try { localStorage.setItem('kayviz.studio', on ? '1' : '0'); } catch (_) {}
+}
+_studioButton.addEventListener('click', () => setStudio(!studio.enabled));
+document.body.appendChild(_studioButton);
+let _savedStudio = null;
+try { _savedStudio = localStorage.getItem('kayviz.studio'); } catch (_) {}
+setStudio(_savedStudio === '1');
+window.__setStudio = setStudio;
+
 // ── Render loop ───────────────────────────────────────────────────────────────
 function animate() {
   requestAnimationFrame(animate);
   controls.update();
-  renderer.render(scene, camera);
+  window.__renderFrame();
   _gizmo.draw(camera.quaternion);
   if (window.__viewer) labelRenderer.render(window.__viewer, camera);
 }

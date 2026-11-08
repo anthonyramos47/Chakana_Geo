@@ -18,7 +18,8 @@ static/
 ├── ws.js                 WebSocket client (WSClient class)
 ├── screenshot.js, LabelRenderer.js
 ├── lib/
-│   └── MaterialLibrary.js  named material / shader registry
+│   ├── MaterialLibrary.js  named material / shader registry
+│   └── Studio.js           studio render mode (AO, soft shadow, backdrop)
 └── gui/
     ├── panel.js          base panel class (lil-gui wrapper)
     ├── auto_panel.js     buildSchemaWidgets: widgets from the server schema
@@ -109,6 +110,30 @@ viewer.setUniform('Base mesh', 'uColor', new THREE.Color(1, 0.5, 0));
 A sun/moon button right of the axis gizmo toggles the scene background between
 dark (`#1a1a1a`) and white; the grid is recoloured to match. The choice is saved
 in `localStorage['kayviz.background']`. From code: `window.__setBackgroundTheme('light' | 'dark')`.
+
+### Studio render mode
+
+The bulb button next to it switches `lib/Studio.js` on: frames go through an
+EffectComposer (RenderPass → GTAO → OutputPass, 4x MSAA, neutral tone mapping), the
+key light casts a soft VSM shadow onto an invisible shadow-catcher floor under the
+scene, the 'physical' shader reflects a softbox environment, and the background
+becomes a vertical gradient (light or dark, following the sun/moon theme); the grid
+is hidden. Saved in `localStorage['kayviz.studio']`; from code `window.__setStudio(true)`.
+
+- AO radius, shadow frustum and floor height are refitted every 30 frames to the
+  bounding box of the visible objects. Lighting → Studio has sliders for AO
+  strength, AO radius (fraction of the scene half-diagonal) and shadow darkness.
+- Translucent meshes (opacity < 1), lines, points and the floor are hidden during the
+  AO pass, so a translucent shell does not darken what is inside it. Meshes with
+  opacity < 0.5 cast no shadow; opaque meshes also receive shadows.
+- The scene background is removed during the AO pass: GTAO renders its depth/normal
+  buffer with `scene.overrideMaterial`, which also catches the plane three.js uses
+  to draw a texture background, so the backdrop would show up as a dark quad.
+- Costs about 2.5x a plain frame (≈34 ms vs 13 ms at DPR 2 on the test machine), so
+  it is meant for figures and screenshots; `ws.screenshot()` captures through it
+  (`window.__renderFrame`).
+- Recipe adapted from the MIT-licensed teardown project
+  (github.com/elvarofficial/teardown, `sims/v8-shared/stage.js`).
 
 ### Scalar quantities
 

@@ -14,8 +14,9 @@ export class LightingPanel {
    * @param {THREE.DirectionalLight} keyLight
    * @param {THREE.DirectionalLight} fillLight
    * @param {THREE.Scene}            [scene]   — for the environment-map intensity
+   * @param {Studio}                 [studio]  — studio render mode (AO / shadow sliders)
    */
-  constructor(container, ambient, keyLight, fillLight, scene = null) {
+  constructor(container, ambient, keyLight, fillLight, scene = null, studio = null) {
     this.gui = new GUI({ container, title: 'Lighting' });
 
     // ── Ambient ───────────────────────────────────────────────────────────
@@ -65,6 +66,18 @@ export class LightingPanel {
       .onChange(v => { fillLight.position.y = v; });
     ff.add(fillState, 'z', -20, 20, 0.1).name('Z')
       .onChange(v => { fillLight.position.z = v; });
+
+    // ── Studio render (the bulb button): ambient occlusion and floor shadow ──
+    if (studio) {
+      const sf = this.gui.addFolder('Studio');
+      sf.close();
+      sf.add(studio.params, 'ao', 0, 1.5, 0.01).name('AO strength')
+        .onChange(v => studio.setAO(v));
+      sf.add(studio.params, 'aoRadius', 0.01, 0.6, 0.005).name('AO radius')
+        .onChange(v => studio.setAORadius(v));
+      sf.add(studio.params, 'shadow', 0, 1, 0.01).name('Shadow')
+        .onChange(v => studio.setShadow(v));
+    }
 
     // Strip lil-gui's default absolute positioning so it flows inline
     Object.assign(this.gui.domElement.style, {
