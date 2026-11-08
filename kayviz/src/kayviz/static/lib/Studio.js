@@ -74,13 +74,15 @@ export class Studio {
    * @param {THREE.WebGLRenderer} renderer
    * @param {THREE.Scene} scene
    * @param {THREE.Camera} camera
-   * @param {{keyLight: THREE.DirectionalLight, grid: THREE.Object3D}} opts
+   * @param {{keyLight: THREE.DirectionalLight, ambient: THREE.AmbientLight,
+   *          grid: THREE.Object3D}} opts
    */
-  constructor(renderer, scene, camera, { keyLight, grid }) {
+  constructor(renderer, scene, camera, { keyLight, ambient, grid }) {
     this.renderer = renderer;
     this.scene    = scene;
     this.camera   = camera;
     this.keyLight = keyLight;
+    this.ambient  = ambient;
     this.grid     = grid;
     this.enabled  = false;
     this.theme    = 'dark';
@@ -136,15 +138,20 @@ export class Studio {
         environment: s.environment, envIntensity: s.environmentIntensity,
         toneMapping: r.toneMapping, shadowType: r.shadowMap.type,
         gridVisible: this.grid.visible, castShadow: k.castShadow,
+        keyIntensity: k.intensity, ambientIntensity: this.ambient?.intensity,
       };
+      // Studio lighting: flat ambient light washes the shadows out, so the environment map
+      // does the fill and the key light carries the shadow. Restored by setEnabled(false).
       s.environment = this._envTex;
-      s.environmentIntensity = 1.0;
+      s.environmentIntensity = 0.7;
+      k.intensity = 2.0;
+      if (this.ambient) this.ambient.intensity = 0.1;
       r.toneMapping = THREE.NeutralToneMapping;
       r.shadowMap.type = THREE.VSMShadowMap;
       this.grid.visible = false;
       k.castShadow = true;
       k.shadow.mapSize.set(4096, 4096);
-      k.shadow.radius = 14;
+      k.shadow.radius = 8;
       k.shadow.blurSamples = 24;
       s.add(k.target);
       this.floor.visible = true;
@@ -159,6 +166,8 @@ export class Studio {
       r.shadowMap.type = sv.shadowType;
       this.grid.visible = sv.gridVisible;
       k.castShadow = sv.castShadow;
+      k.intensity = sv.keyIntensity;
+      if (this.ambient) this.ambient.intensity = sv.ambientIntensity;
       k.target.position.set(0, 0, 0);
       k.target.updateMatrixWorld();
       this.floor.visible = false;
@@ -185,7 +194,9 @@ export class Studio {
   /** Draw one frame (call instead of renderer.render while enabled). */
   render() {
     this._syncSize();
-    if (this._frame++ % REFIT === 0) this.refit();
+    // Refit when objects are added/removed, and every REFIT frames for edits in place.
+    const n = this.scene.children.length;
+    if (this._frame++ % REFIT === 0 || n !== this._nChildren) { this._nChildren = n; this.refit(); }
     this._markShadowCasters();
     this.composer.render();
   }

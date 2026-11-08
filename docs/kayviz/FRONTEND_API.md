@@ -120,8 +120,11 @@ scene, the 'physical' shader reflects a softbox environment, and the background
 becomes a vertical gradient (light or dark, following the sun/moon theme); the grid
 is hidden. Saved in `localStorage['kayviz.studio']`; from code `window.__setStudio(true)`.
 
-- AO radius, shadow frustum and floor height are refitted every 30 frames to the
-  bounding box of the visible objects. Lighting → Studio has sliders for AO
+- Studio lighting: while on, ambient drops to 0.1, the key light goes to 2.0 and the
+  environment to 0.7 (flat ambient light washes shadows out); switching off restores
+  the previous values. The Lighting sliders follow these values.
+- AO radius, shadow frustum and floor height are refitted to the bounding box of the
+  visible objects when objects are added/removed and every 30 frames. Lighting → Studio has sliders for AO
   strength, AO radius (fraction of the scene half-diagonal) and shadow darkness.
 - Translucent meshes (opacity < 1), lines, points and the floor are hidden during the
   AO pass, so a translucent shell does not darken what is inside it. Meshes with

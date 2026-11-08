@@ -88,7 +88,7 @@ pmrem.dispose();
 window.__lights = { ambient, keyLight, fillLight, scene };   // consumed by app_loader.js
 
 // Studio render mode (AO, soft floor shadow, softbox environment); see lib/Studio.js.
-const studio = new Studio(renderer, scene, camera, { keyLight, grid });
+const studio = new Studio(renderer, scene, camera, { keyLight, ambient, grid });
 window.__studio = studio;
 window.__lights.studio = studio;
 // One frame of the current mode; also used by the screenshot bridge.

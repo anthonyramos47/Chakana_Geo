@@ -20,28 +20,24 @@ export class LightingPanel {
     this.gui = new GUI({ container, title: 'Lighting' });
 
     // ── Ambient ───────────────────────────────────────────────────────────
-    const ambState = { intensity: ambient.intensity };
+    // Intensities are bound to the lights themselves and listen(), so the values studio
+    // mode sets while it is on show up here.
     const af = this.gui.addFolder('Ambient');
-    af.add(ambState, 'intensity', 0, 2, 0.01).name('Intensity')
-      .onChange(v => { ambient.intensity = v; });
+    af.add(ambient, 'intensity', 0, 2, 0.01).name('Intensity').listen();
 
     // ── Environment map (reflections of the 'physical' shader) ────────────
     if (scene?.environment) {
-      const envState = { intensity: scene.environmentIntensity ?? 1.0 };
-      af.add(envState, 'intensity', 0, 2, 0.01).name('Environment')
-        .onChange(v => { scene.environmentIntensity = v; });
+      af.add(scene, 'environmentIntensity', 0, 2, 0.01).name('Environment').listen();
     }
 
     // ── Key light ─────────────────────────────────────────────────────────
     const keyState = {
-      intensity: keyLight.intensity,
       x: keyLight.position.x,
       y: keyLight.position.y,
       z: keyLight.position.z,
     };
     const kf = this.gui.addFolder('Key Light');
-    kf.add(keyState, 'intensity', 0, 3, 0.01).name('Intensity')
-      .onChange(v => { keyLight.intensity = v; });
+    kf.add(keyLight, 'intensity', 0, 3, 0.01).name('Intensity').listen();
     kf.add(keyState, 'x', -20, 20, 0.1).name('X')
       .onChange(v => { keyLight.position.x = v; });
     kf.add(keyState, 'y', -20, 20, 0.1).name('Y')
