@@ -1,0 +1,12 @@
+{
+  "name": "kayviz-frontend-tests",
+  "private": true,
+  "description": "Dev-only: node tests of the kayviz frontend (static/) against the three.js version the import map loads. Run: npm install && npm test",
+  "type": "module",
+  "scripts": {
+    "test": "node --test tests/js/"
+  },
+  "devDependencies": {
+    "three": "0.165.0"
+  }
+}
