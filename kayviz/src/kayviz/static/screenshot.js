@@ -147,6 +147,7 @@ export function startScreenshotBridge(THREE) {
       const grid     = window.__grid;
       let images = [], error = null;
       let restoreBg = () => {};
+      const gridWasVisible = grid?.visible;     // hidden in studio mode: keep it so
 
       try {
         if (grid && job.hide_grid) grid.visible = false;
@@ -162,7 +163,7 @@ export function startScreenshotBridge(THREE) {
       } catch (e) {
         error = String(e && e.message ? e.message : e);
       } finally {
-        if (grid) grid.visible = true;
+        if (grid) grid.visible = gridWasVisible;
         restoreBg();
         window.__invalidate?.();         // capture resized the canvas, which clears it
       }

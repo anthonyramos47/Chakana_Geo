@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import math
 import struct
 
 import numpy as np
@@ -30,18 +31,37 @@ _TYPES = {np.dtype(np.float32): "f32", np.dtype(np.int32): "i32", np.dtype(np.ui
 
 
 def _wire_array(a: np.ndarray) -> np.ndarray:
-    """Flat, contiguous, 4-byte dtype the browser understands."""
+    """Flat, contiguous, little-endian 4-byte dtype the browser understands."""
     a = np.asarray(a)
     if a.dtype not in _TYPES:
         if np.issubdtype(a.dtype, np.floating):
             a = a.astype(np.float32)
-        elif np.issubdtype(a.dtype, np.unsignedinteger):
-            a = a.astype(np.uint32)
         elif np.issubdtype(a.dtype, np.integer) or a.dtype == np.bool_:
-            a = a.astype(np.int32)
+            unsigned = np.issubdtype(a.dtype, np.unsignedinteger)
+            target = np.uint32 if unsigned else np.int32
+            info = np.iinfo(target)
+            if a.size and (a.min() < info.min or a.max() > info.max):
+                # narrowing would wrap around silently (2**31 + 5 -> -2147483643)
+                raise ValueError(f"kayviz: integer array with values in "
+                                 f"[{a.min()}, {a.max()}] does not fit in {info.dtype}")
+            a = a.astype(target)
         else:
             raise TypeError(f"kayviz cannot send arrays of dtype {a.dtype}")
-    return np.ascontiguousarray(a.ravel())
+    return np.ascontiguousarray(a.ravel()).astype(a.dtype.newbyteorder("<"), copy=False)
+
+
+def _scalar(v):
+    """A JSON-safe scalar: numpy scalars as Python numbers, NaN/Inf as None (JSON
+    has no NaN; the browser's JSON.parse rejects the whole message on one)."""
+    if isinstance(v, np.generic):
+        v = v.item()
+    if isinstance(v, float) and not math.isfinite(v):
+        return None
+    return v
+
+
+def _is_container(v) -> bool:
+    return isinstance(v, (dict, list, tuple, np.ndarray))
 
 
 def _pad8(n: int) -> int:
@@ -65,15 +85,10 @@ def encode(msg) -> str | bytes:
         if isinstance(o, dict):
             return {k: walk(v) for k, v in o.items()}
         if isinstance(o, (list, tuple)):
-            # lists of numbers (colours, or big lists in attach mode) stay as they are
-            if o and not isinstance(o[0], (dict, list, tuple, np.ndarray)):
-                return o
-            return [walk(v) for v in o]
-        if isinstance(o, np.generic):
-            return o.item()
-        return o
+            return [walk(v) if _is_container(v) else _scalar(v) for v in o]
+        return _scalar(o)
 
-    header = json.dumps(walk(msg), separators=(",", ":"))
+    header = json.dumps(walk(msg), separators=(",", ":"), allow_nan=False)
     if not chunks:
         return header
     hb = header.encode()
@@ -83,18 +98,17 @@ def encode(msg) -> str | bytes:
 
 
 def jsonable(o):
-    """Copy of *o* with numpy arrays and scalars turned into lists / numbers."""
+    """Copy of *o* with numpy arrays and scalars turned into lists / numbers, and
+    NaN/Inf into None (strict JSON)."""
     if isinstance(o, np.ndarray):
+        if np.issubdtype(o.dtype, np.floating) and not np.isfinite(o).all():
+            return [jsonable(v) for v in o.tolist()]
         return o.tolist()
-    if isinstance(o, np.generic):
-        return o.item()
     if isinstance(o, dict):
         return {k: jsonable(v) for k, v in o.items()}
     if isinstance(o, (list, tuple)):
-        if o and not isinstance(o[0], (dict, list, tuple, np.ndarray, np.generic)):
-            return list(o)
-        return [jsonable(v) for v in o]
-    return o
+        return [jsonable(v) if _is_container(v) else _scalar(v) for v in o]
+    return _scalar(o)
 
 
 async def encode_async(msg) -> str | bytes:

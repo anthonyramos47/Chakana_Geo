@@ -9,7 +9,7 @@ description = "Polyscope-style 3D viewer in the browser: register geometry and b
 authors = [{ name = "Anthony Ramos-Cisneros" }]
 license = "GPL-3.0-or-later"
 license-files = ["LICENSE"]
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 dependencies = [
     "numpy",
     "fastapi",
@@ -20,7 +20,8 @@ dependencies = [
 
 [project.optional-dependencies]
 screenshots = ["pillow"]      # save_grid contact sheets
-test = ["pytest", "httpx"]
+servers = ["psutil"]          # kill_servers(force=True) and process names
+test = ["pytest", "httpx", "websockets"]
 
 [project.scripts]
 kayviz = "kayviz.__main__:main"

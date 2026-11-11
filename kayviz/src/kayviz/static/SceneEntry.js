@@ -51,7 +51,7 @@ export class EdgeChild extends Child {
   setColor(rgb) {
     this.color = [...rgb];
     if (this.mesh?.material) {
-      this.mesh.material.color.setRGB(rgb[0], rgb[1], rgb[2]);
+      this.mesh.material.color?.setRGB(rgb[0], rgb[1], rgb[2]);
     }
   }
 
@@ -85,7 +85,7 @@ export class VectorChild extends Child {
   setColor(rgb) {
     this.color = [...rgb];
     if (this.mesh?.material) {
-      this.mesh.material.color.setRGB(rgb[0], rgb[1], rgb[2]);
+      this.mesh.material.color?.setRGB(rgb[0], rgb[1], rgb[2]);
     }
   }
 
@@ -145,8 +145,8 @@ export class ScalarChild extends Child {
     if (this._colorAttrBackup === undefined) {
       const existing = parentMesh.geometry.attributes.color;
       this._colorAttrBackup    = existing ? existing.clone() : null;
-      const mc = parentMesh.material.color;
-      this._priorMaterialColor = [mc.r, mc.g, mc.b];
+      const mc = parentMesh.material.color;    // none on normal/depth/shader materials
+      this._priorMaterialColor = mc ? [mc.r, mc.g, mc.b] : null;
     }
 
     this._writeColors(parentMesh, parentEntry, viridisFn, this.vmin, this.vmax);
@@ -215,7 +215,7 @@ export class ScalarChild extends Child {
     }
 
     if (this._priorMaterialColor) {
-      parentMesh.material.color.setRGB(...this._priorMaterialColor);
+      parentMesh.material.color?.setRGB(...this._priorMaterialColor);
     }
     parentMesh.material.vertexColors = false;
     parentMesh.material.needsUpdate  = true;

@@ -49,7 +49,7 @@ class Scene:
     def register_surface_mesh(self, name: str, vertices, faces,
                               color=(0.8, 0.8, 0.8), face_size=None,
                               opacity: float = 1.0, show_edges: bool = False,
-                              edge_color=(0.8, 0.8, 0.8), show: bool = True,
+                              edge_color=(0.1, 0.1, 0.1), show: bool = True,
                               material=None):
         """Mirrors ps.register_surface_mesh(). Pass show_edges=True to overlay the wireframe,
         show=False to register it hidden, material="glass" to pin this mesh's shader."""

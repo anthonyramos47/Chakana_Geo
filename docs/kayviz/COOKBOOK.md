@@ -126,14 +126,16 @@ Overrides carried by the action payload come from `data`:
 async def _run(self, state, data, ws):
     state.is_running = True
     while state.is_running and state.iteration < state.max_iter:
-        comp.step(state)
+        await asyncio.to_thread(comp.step, state)   # heavy work off the event loop
         await ws.send_json({"action": "scene_update",
                             "iteration": state.iteration,
                             "objects": comp.build_scene(state)})
     await ws.send_json(self._done("optimization_complete"))
 ```
 
-A `stop` action sets `state.is_running = False`.
+A `stop` action sets `state.is_running = False`; it is handled while `_run` runs. Run the
+step with `asyncio.to_thread` (`import asyncio`): called directly it would block the event
+loop, freezing every tab until the step returns.
 
 ### No reply
 

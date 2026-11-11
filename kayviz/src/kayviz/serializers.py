@@ -12,6 +12,8 @@ nothing here generates geometry. Mesh data for spheres, circles, planes, cones,
 belong in the project that defines the geometry and return lists of these dicts.
 """
 
+from __future__ import annotations
+
 import numpy as np
 
 
@@ -52,7 +54,7 @@ def _polygon_edges(faces) -> np.ndarray:
 
 def surface_mesh(name: str, vertices, faces, color=(0.8, 0.8, 0.8),
                  face_size=None, opacity=1.0, show_edges=False,
-                 edge_color=(0.8, 0.8, 0.8), edge_radius: float = 0.0, show: bool = True,
+                 edge_color=(0.1, 0.1, 0.1), edge_radius: float = 0.0, show: bool = True,
                  material=None):
     """Mirrors ps.register_surface_mesh(). show=False registers the object hidden (its checkbox in the scene panel unticked).
     material (e.g. "glass") pins this mesh's shader; None follows the global Shader dropdown.

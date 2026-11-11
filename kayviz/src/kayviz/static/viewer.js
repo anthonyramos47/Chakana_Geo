@@ -121,7 +121,9 @@ export class Viewer {
     const e = this._objects.get(name);
     if (!e) return;
     e.color = [...color];
-    e.mesh.material.color.setRGB(color[0], color[1], color[2]);
+    // normal / depth / custom shader materials have no colour (the shader may take uColor)
+    e.mesh.material.color?.setRGB(color[0], color[1], color[2]);
+    e.mesh.material.uniforms?.uColor?.value.setRGB(color[0], color[1], color[2]);
     e.mesh.material.needsUpdate = true;
   }
 
@@ -202,6 +204,7 @@ export class Viewer {
     if (!e || e.type !== 'surface_mesh') return;
     this.matLib.applyTo(e.mesh, matName, e.color, e.opacity);
     e.opts.material = matName;
+    e.opts.pinned   = true;          // a per-mesh choice survives the global Shader dropdown
     if (e.mesh.geometry.hasAttribute('color')) {
       e.mesh.material.vertexColors = true;
     }

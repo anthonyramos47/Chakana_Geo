@@ -151,7 +151,7 @@ async def _run(self, state, data, ws):
     for _ in range(state.max_iterations):
         if not state.is_running:
             break
-        comp.optimization_step(state)
+        await asyncio.to_thread(comp.optimization_step, state)   # off the event loop
         await ws.send_json(comp.scene_snapshot(state))
     await ws.send_json(self._done("optimization_complete"))
 ```

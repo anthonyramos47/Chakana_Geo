@@ -130,6 +130,7 @@ class MyState:
 ### Step 2 — The app
 
 ```python
+import asyncio
 import kayviz as kv
 import computations as comp
 
@@ -155,7 +156,7 @@ class MyApp(kv.GUIApp):
     async def _run(self, state, data, ws):
         state.is_running = True
         while state.is_running and state.iteration < state.max_iter:
-            comp.step(state)
+            await asyncio.to_thread(comp.step, state)   # heavy work off the event loop
             await ws.send_json({"action": "scene_update",
                                 "iteration": state.iteration,
                                 "objects": comp.build_scene(state)})

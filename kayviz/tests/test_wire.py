@@ -85,3 +85,29 @@ def test_binary_scene_is_much_smaller_than_the_old_json():
            {"type": "edge_child", "vertices": ends, "edges": conn}]
     legacy = len(json.dumps({"objects": old}))
     assert binary * 4 < legacy
+
+
+def test_numpy_scalars_and_mixed_lists_encode():
+    out = encode({"color": [np.float32(0.5), 1, 1], "l": [1.0, np.zeros(2)], "n": np.int64(3)})
+    back = decode(out)
+    assert back["color"] == [0.5, 1, 1] and back["n"] == 3
+    assert back["l"][0] == 1.0 and back["l"][1].tolist() == [0.0, 0.0]
+
+
+def test_non_finite_numbers_become_null():
+    # JSON has no NaN; the browser's JSON.parse would reject the whole message.
+    out = encode({"energy": float("nan"), "r": [np.float64("inf"), 1.0]})
+    assert json.loads(out) == {"energy": None, "r": [None, 1.0]}
+    assert jsonable({"v": np.array([1.0, np.nan])}) == {"v": [1.0, None]}
+
+
+def test_integers_that_do_not_fit_int32_raise():
+    import pytest
+    with pytest.raises(ValueError, match="does not fit"):
+        encode({"a": np.array([2**31 + 5])})
+    assert decode(encode({"a": np.array([-5, 2**31 - 1])}))["a"].tolist() == [-5, 2**31 - 1]
+
+
+def test_show_edges_default_colour_is_dark():
+    V, F = _grid(3)
+    assert ser.surface_mesh("Q", V, F, show_edges=True)["edge_color"] == [0.1, 0.1, 0.1]

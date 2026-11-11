@@ -7,6 +7,7 @@ polyhedral_panel.js. run.py serves it with kayviz.
 """
 
 from __future__ import annotations
+import asyncio
 import os
 
 from fastapi import WebSocket
@@ -95,7 +96,7 @@ class PolyhedralMeshApp(kv.GUIApp):
     async def _run(self, state: AppState, data: dict, ws: WebSocket) -> None:
         state.is_running = True
         while state.is_running and state.current_iteration < state.max_iterations:
-            comp.optimization_step(state)
+            await asyncio.to_thread(comp.optimization_step, state)   # off the event loop
             await ws.send_json(comp.scene_snapshot(state))
         state.is_running = False
         await ws.send_json(self._done("optimization_complete"))

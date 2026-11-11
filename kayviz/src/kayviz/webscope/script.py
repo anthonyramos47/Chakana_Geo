@@ -127,7 +127,7 @@ def url() -> str:
 def register_surface_mesh(name: str, vertices, faces,
                           color=(0.8, 0.8, 0.8), opacity: float = 1.0,
                           show_edges: bool = False,
-                          edge_color=(0.8, 0.8, 0.8),
+                          edge_color=(0.1, 0.1, 0.1),
                           edge_radius: float = 0.0, show: bool = True,
                           material=None) -> None:
     """Mirrors ps.register_surface_mesh(). Pass show_edges=True to overlay the wireframe,
@@ -566,7 +566,7 @@ def show(block: "str | bool" = "auto", app: str = None) -> None:
             print("\n[kayviz] Interrupted.")
 
 
-def kill_servers(ports=range(8000, 8100), host: str = "127.0.0.1",
+def kill_servers(ports=None, host: str = "127.0.0.1",
                  force: bool = False) -> list:
     """
     Stop every kayviz viewer server on this machine and reset this process's
@@ -577,7 +577,7 @@ def kill_servers(ports=range(8000, 8100), host: str = "127.0.0.1",
     them all — the processes themselves (e.g. Jupyter kernels) keep running.
 
     Args:
-        ports: ports to scan.
+        ports: ports to scan; default the 100 ports from KAYVIZ_PORT (8000).
         host:  interface the servers listen on.
         force: also terminate a standalone ``python -m kayviz`` process that
                does not answer the shutdown request (never a Jupyter kernel).
@@ -587,6 +587,9 @@ def kill_servers(ports=range(8000, 8100), host: str = "127.0.0.1",
     """
     global _url, _mode
     import socket
+
+    if ports is None:                       # the range kv.init() picks from
+        ports = range(_DEFAULT_PORT, _DEFAULT_PORT + 100)
 
     stopped, found = [], 0
     if _server is not None:                     # this process's own server
@@ -807,5 +810,7 @@ def _wait_until_idle(poll_interval: float = 1.0, timeout: float = 24 * 3600.0) -
             res = r.json() if r.status_code == 200 else {}
             if res.get("idle") and res.get("seen"):
                 return
+            if r.status_code != 200:
+                time.sleep(poll_interval)        # never spin on a failing server
         except (requests.RequestException, ValueError):
             time.sleep(poll_interval)
