@@ -225,6 +225,13 @@ Fields sharing a prefix (`sphere_radius`, `sphere_center`) are grouped in one fo
 { "action": "error", "message": "…" }
 ```
 
+**Access.** The viewer answers only this machine's programs and its own page: other web
+pages open in your browser cannot read the scene, run callbacks or stop the server
+(Host, Origin and Sec-Fetch-Site checks, `kayviz/security.py`). Behind a proxy (JupyterHub,
+remote port forwarding under another name) add the name to `KAYVIZ_ALLOWED_HOSTS`
+(comma-separated). To serve other machines: `python -m kayviz --host 0.0.0.0
+--allow-network` — anyone who reaches the port sees the scene and can run its actions.
+
 **Input checks.** The serializers raise `ValueError` naming the object for wrong input:
 vertices / points / vectors not `(N, 3)` (2D points get a hint to add a z column), complex
 or non-numeric arrays, face or edge indices out of range or not integers, faces with fewer

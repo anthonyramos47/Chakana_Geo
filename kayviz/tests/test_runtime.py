@@ -576,3 +576,45 @@ def test_a_tab_that_stops_reading_does_not_stall_pushes():
         raw.close()
     ''')
     assert out["max_push_s"] < 3.0
+
+
+def test_other_web_pages_cannot_reach_the_viewer():
+    out = _run('''
+        kv.init()
+        kv.register_point_cloud("Secret", np.zeros((2, 3)))
+        base = kv.url()
+        host = base.split("//")[1]
+        ws_url = base.replace("http", "ws") + "/api/script/ws"
+        def ws_ok(**kw):
+            try:
+                with connect(ws_url, **kw) as ws:
+                    return recv_until(ws, lambda m: True, timeout=2).get("action")
+            except Exception as e:
+                return type(e).__name__
+        out["ws_foreign"] = ws_ok(origin="https://evil.example")
+        out["ws_own"] = ws_ok(origin=f"http://{host}")
+        out["ws_python"] = ws_ok()
+        out["shutdown_csrf"] = requests.post(base + "/api/_shutdown", data="x",
+            headers={"Origin": "https://evil.example", "Content-Type": "text/plain"}).status_code
+        out["rebinding"] = requests.get(base + "/api/script/load",
+            headers={"Host": "attacker.example:" + host.split(":")[1]}).status_code
+        out["no_cors_get"] = requests.get(base + "/api/script/screenshot/pending",
+            headers={"Sec-Fetch-Site": "cross-site", "Sec-Fetch-Mode": "no-cors"}).status_code
+        out["link_from_jupyter"] = requests.get(base + "/",
+            headers={"Sec-Fetch-Site": "same-site", "Sec-Fetch-Mode": "navigate"}).status_code
+        out["alive"] = requests.get(base + "/api/script/ping").status_code
+        r = requests.post(base + "/api/script/screenshot/request",
+                          json={"views": [{"live": True}], "width": 20000, "height": 20000})
+        out["huge_shot"] = r.json()
+    ''')
+    assert out["ws_foreign"] != "scene_update"
+    assert out["ws_own"] == "scene_update" and out["ws_python"] == "scene_update"
+    assert out["shutdown_csrf"] == 403 and out["alive"] == 200
+    assert out["rebinding"] == 403 and out["no_cors_get"] == 403
+    assert out["link_from_jupyter"] == 200
+
+
+def test_network_serving_needs_an_explicit_flag():
+    proc = subprocess.run([sys.executable, "-m", "kayviz", "--host", "0.0.0.0",
+                           "--port", "18799"], capture_output=True, text=True, timeout=30)
+    assert proc.returncode != 0 and "--allow-network" in proc.stderr

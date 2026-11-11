@@ -30,6 +30,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
 
+from .security import LocalOnlyMiddleware, is_loopback
 from .webscope.registry import register_app, mount_all, get_app, app_names
 from .webscope.script_app import ScriptApp
 
@@ -45,7 +46,13 @@ class _NoCacheMiddleware(BaseHTTPMiddleware):
         return response
 
 
-def create_app(apps=(), shared: bool = False, default_app: str | None = None) -> FastAPI:
+# Browsers send small JSON messages; the limit only bounds what a client can make
+# the server buffer (uvicorn's own default is 16 MB).
+WS_MAX_SIZE = 4 * 1024 * 1024
+
+
+def create_app(apps=(), shared: bool = False, default_app: str | None = None,
+               network: bool = False) -> FastAPI:
     """
     Build the FastAPI app: viewer page, static frontend, and one router per
     registered app (plus any registered later).
@@ -56,6 +63,8 @@ def create_app(apps=(), shared: bool = False, default_app: str | None = None) ->
                      processes may attach to (see ``kayviz.init``).
         default_app: app opened at ``/`` when the URL has no ``?app=``.
                      Defaults to the most recently registered app.
+        network:     served on a network interface (see kayviz.security): the
+                     Host check is off; Origin and cross-site checks stay.
     """
     script = get_app("script")
     if script is None:
@@ -77,6 +86,7 @@ def create_app(apps=(), shared: bool = False, default_app: str | None = None) ->
 
     fastapi_app = FastAPI(title="kayviz", lifespan=lifespan)
     fastapi_app.add_middleware(_NoCacheMiddleware)
+    fastapi_app.add_middleware(LocalOnlyMiddleware, network=network)   # outermost
     fastapi_app.state.default_app = default_app
     # Tabs left from an earlier server reconnect to a new one on the same port;
     # a different instance id tells them to reload (fresh panel and scene).
@@ -143,13 +153,17 @@ class BackgroundServer:
     def __init__(self, host: str = "127.0.0.1", port: int | None = None):
         import uvicorn
 
+        if not is_loopback(host):
+            raise ValueError(f"kayviz: the in-process viewer serves this machine only "
+                             f"(host {host!r}); use `python -m kayviz --host {host} "
+                             f"--allow-network` to serve a network")
         self.host = host
         self.port = port or find_free_port(
             int(os.environ.get("KAYVIZ_PORT", 8000)), host)
         self.app = create_app()
         config = uvicorn.Config(self.app, host=self.host, port=self.port,
                                 log_level="warning", ws=ws_impl(),
-                                ws_max_size=256 * 1024 * 1024,
+                                ws_max_size=WS_MAX_SIZE,
                                 timeout_graceful_shutdown=2)
         self._server = uvicorn.Server(config)
         self.app.state.shutdown = lambda: setattr(self._server, "should_exit", True)

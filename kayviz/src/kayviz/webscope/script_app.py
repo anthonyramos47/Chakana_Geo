@@ -41,6 +41,9 @@ class ScriptState:
     pass  # no user-facing widgets — scripting API has no control panel state
 
 
+SHOT_MAX_PIXELS = 12_000_000        # as the viewer's save-picture cap
+
+
 class ScriptApp(BroadcastMixin, GUIApp):
     name      = "script"
     state_cls = ScriptState
@@ -122,6 +125,11 @@ class ScriptApp(BroadcastMixin, GUIApp):
         async def screenshot_request(payload: dict):
             if not app._clients:
                 return {"ok": False, "error": "no browser connected"}
+            w, h = int(payload.get("width", 900)), int(payload.get("height", 700))
+            if w <= 0 or h <= 0 or w * h > SHOT_MAX_PIXELS:
+                # the browser allocates this canvas (plus studio buffers) on the GPU
+                return {"ok": False, "error": f"{w}x{h} exceeds the "
+                        f"{SHOT_MAX_PIXELS / 1e6:.0f} Mpx screenshot limit"}
             job = {
                 "id":        uuid.uuid4().hex,
                 "views":     payload.get("views", []),
