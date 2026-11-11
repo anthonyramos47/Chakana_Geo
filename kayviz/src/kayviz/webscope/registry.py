@@ -27,6 +27,8 @@ from fastapi import APIRouter, FastAPI, HTTPException, WebSocket
 from fastapi.responses import FileResponse
 
 from .app import GUIApp
+from .broadcast_mixin import BroadcastMixin
+from .wire import jsonable
 
 _apps: dict[str, GUIApp] = {}
 _mounted: list[FastAPI] = []          # FastAPI instances that mount_all() ran on
@@ -86,12 +88,18 @@ def _make_router(name: str) -> APIRouter:
             "state":   app.state_schema(),
             "actions": list(app._actions.keys()),
             "panel":   bool(app.panel_js),
+            # the app's WebSocket sends the whole scene on connect, so the page
+            # loads it from there and asks /load without objects
+            "streams_scene": isinstance(app, BroadcastMixin),
         }
 
     @router.post("/load")
-    def load(mesh_name: str = ""):
+    def load(mesh_name: str = "", objects: bool = True):
         app = _lookup(name)
-        return app.initial_scene(mesh_name) if mesh_name else app.initial_scene()
+        if not objects and isinstance(app, BroadcastMixin):
+            return {"objects": []}
+        scene = app.initial_scene(mesh_name) if mesh_name else app.initial_scene()
+        return jsonable(scene)
 
     @router.get("/panel.js")
     def panel_js():

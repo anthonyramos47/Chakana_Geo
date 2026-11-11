@@ -95,7 +95,12 @@ const energyPanel = new EnergyPanel(ws, { position: 'bottom-right' });
 statusEl.textContent = meshName ? `Loading ${meshName}…` : 'Loading…';
 
 try {
-  const query = meshName ? `?mesh_name=${encodeURIComponent(meshName)}` : '';
+  // Apps that stream their scene send all of it when the WebSocket connects; asking
+  // /load for it too would build every object twice.
+  const q = new URLSearchParams();
+  if (meshName) q.set('mesh_name', meshName);
+  if (schema.streams_scene) q.set('objects', 'false');
+  const query = q.toString() ? `?${q}` : '';
   const res = await fetch(`/api/${appName}/load${query}`, { method: 'POST' });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   const data = await res.json();

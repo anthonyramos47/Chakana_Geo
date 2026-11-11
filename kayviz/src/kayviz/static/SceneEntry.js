@@ -62,6 +62,7 @@ export class EdgeChild extends Child {
     const mats = Array.isArray(this.mesh.material)
       ? this.mesh.material : [this.mesh.material];
     mats.forEach(m => m?.dispose());
+    this.mesh.dispose?.();   // InstancedMesh: frees its instance buffers
     this.mesh = null;
   }
 }
@@ -95,6 +96,7 @@ export class VectorChild extends Child {
     const mats = Array.isArray(this.mesh.material)
       ? this.mesh.material : [this.mesh.material];
     mats.forEach(m => m?.dispose());
+    this.mesh.dispose?.();   // InstancedMesh: frees its instance buffers
     this.mesh = null;
   }
 }
@@ -107,8 +109,15 @@ export class ScalarChild extends Child {
     this.mesh       = null;   // scalar has no mesh
     this.values     = values;
     this.definedOn  = definedOn;
-    this.dataMin    = Math.min(...values);
-    this.dataMax    = Math.max(...values);
+    // a loop, not Math.min(...values): spreading > ~120k values throws a RangeError
+    let lo = Infinity, hi = -Infinity;
+    for (let i = 0; i < values.length; i++) {
+      const v = values[i];
+      if (v < lo) lo = v;
+      if (v > hi) hi = v;
+    }
+    this.dataMin    = lo;
+    this.dataMax    = hi;
     this.vmin       = this.dataMin;
     this.vmax       = this.dataMax;
     // Backup state — undefined = uninitialized (null = valid "no prior attr" backup)
@@ -319,5 +328,6 @@ export class SceneEntry {
     const mats = Array.isArray(this.mesh.material)
       ? this.mesh.material : [this.mesh.material];
     mats.forEach(m => m?.dispose());
+    this.mesh.dispose?.();   // InstancedMesh: frees its instance buffers
   }
 }

@@ -33,7 +33,8 @@ from typing import Callable
 from fastapi import WebSocket, WebSocketDisconnect
 
 from .app import GUIApp
-from .broadcast_mixin import BroadcastMixin, send
+from .broadcast_mixin import BroadcastMixin
+from .wire import send
 from .state_schema import gui_state
 from kayviz.webscope import imgui as _imgui
 

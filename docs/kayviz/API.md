@@ -60,9 +60,9 @@ Screenshots of the open tab: `kv.screenshot(path, views=None)`,
 
 #### `show_edges=True`
 
-Unique polygon edges are taken from the faces *before* fan-triangulation and sent as an
-`edge_child` attached to the mesh, so quad or hex meshes show polygon edges, not triangle
-diagonals. The "show edges" checkbox in the scene panel toggles the same overlay without a
+Unique polygon edges are taken from the faces *before* fan-triangulation and sent with the
+mesh as `poly_edges` (index pairs into its vertices), so quad or hex meshes show polygon
+edges, not triangle diagonals. The "show edges" checkbox in the scene panel toggles the same overlay without a
 server round trip.
 
 #### `add_scalar_quantity(..., defined_on="faces")`
@@ -225,17 +225,20 @@ Fields sharing a prefix (`sphere_radius`, `sphere_center`) are grouped in one fo
 { "action": "error", "message": "…" }
 ```
 
-Object dicts in `"objects"` (built by `kayviz.serializers`):
+Object dicts in `"objects"` (built by `kayviz.serializers`). Arrays are numpy float32 / int32
+(always copies of the caller's arrays). On the WebSocket a message with arrays is one
+binary frame (JSON header + raw arrays, see `kayviz/webscope/wire.py`); over HTTP they
+are lists (`wire.jsonable`).
 
 | `"type"` | Fields |
 |---|---|
-| `surface_mesh` | `name`, `vertices`, `faces`, `face_size`, `color`, `opacity`, `show_edges`, `tris_per_face`, `poly_edge_verts`, `poly_edge_conn` |
+| `surface_mesh` | `name`, `vertices`, `faces`, `face_size`, `color`, `opacity`, `show_edges` (+ `edge_color`, `edge_radius`), `tris_per_face`, `poly_edges`, `material` |
 | `curve_network` | `name`, `vertices`, `edges`, `color`, `radius` |
 | `point_cloud` | `name`, `points`, `color`, `radius` |
 | `scalar_quantity` | `target`, `name`, `defined_on`, `values` |
 | `vector_quantity` | `target`, `name`, `defined_on`, `vectors`, `length`, `radius` |
 | `vector_field` | `name`, `origins`, `vectors`, `length`, `radius`, `color` |
-| `edge_child` | `target`, `vertices`, `edges`, `color`, `radius` |
+| `edge_child` | `target`, `vertices`, `edges`, `color`, `radius` (custom overlays; `surface_mesh` no longer emits it) |
 | `set_enabled` | `name`, `enabled` |
 
 ---

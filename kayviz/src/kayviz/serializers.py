@@ -1,7 +1,8 @@
 """
 Generic geometry serializers for kayviz.
 
-Each function returns a plain dict that the WebSocket sends to the browser.
+Each function returns a plain dict that the WebSocket sends to the browser; its
+arrays are numpy float32 / int32 and travel as binary (kayviz.webscope.wire).
 The browser's viewer.js dispatches on obj.type to the correct Three.js call.
 
 Everything here depends on numpy only and wraps arrays the caller already has;
@@ -14,7 +15,40 @@ belong in the project that defines the geometry and return lists of these dicts.
 import numpy as np
 
 
+def _f32(a) -> np.ndarray:
+    """Flat float32 copy. Always a copy: the dict is buffered and replayed on reload,
+    so it must not change when the caller edits its array in place afterwards, nor
+    keep memory owned by someone else (e.g. a C++ extension) alive."""
+    return np.array(a, dtype=np.float32, copy=True).ravel()
+
+
+def _i32(a) -> np.ndarray:
+    """Flat int32 copy (see _f32)."""
+    return np.array(a, dtype=np.int32, copy=True).ravel()
+
+
 # ── Core geometry types ───────────────────────────────────────────────────────
+
+def _polygon_edges(faces) -> np.ndarray:
+    """Unique undirected edges (m, 2) of the polygons, int32."""
+    try:
+        F = np.asarray(faces, dtype=np.int64)
+    except (ValueError, TypeError):
+        F = None
+    if F is not None and F.ndim == 2 and F.shape[0]:
+        E = np.stack([F, np.roll(F, -1, axis=1)], axis=-1).reshape(-1, 2)
+    else:                                       # ragged polygons
+        E = np.array([(f[k], f[(k + 1) % len(f)])
+                      for f in (np.asarray(f).ravel() for f in faces)
+                      for k in range(len(f))], dtype=np.int64).reshape(-1, 2)
+    E.sort(axis=1)
+    if not len(E):
+        return np.zeros((0, 2), np.int32)
+    # unique on one int64 key per edge (faster than np.unique(axis=0))
+    n = int(E.max()) + 1
+    key = np.unique(E[:, 0] * n + E[:, 1])
+    return np.stack([key // n, key % n], axis=1).astype(np.int32)
+
 
 def surface_mesh(name: str, vertices, faces, color=(0.8, 0.8, 0.8),
                  face_size=None, opacity=1.0, show_edges=False,
@@ -26,72 +60,57 @@ def surface_mesh(name: str, vertices, faces, color=(0.8, 0.8, 0.8),
     Faces may be uniform (all same length) or ragged (polygons with different
     vertex counts).  Ragged faces are fan-triangulated for rendering.
 
-    If show_edges=True the unique polygon boundary edges are extracted from the
-    original face list (before triangulation) and returned as a second dict of
-    type 'edge_child' targeting this mesh by name.  The caller must send both
-    dicts to the viewer (the viewer registers the edge as a child of the mesh).
-    The viewer draws the edges as tubes; edge_radius=0 means 3% of the median edge length.
+    The unique polygon edges (before triangulation) always travel with the mesh as
+    ``poly_edges``, pairs of indices into its vertices; the viewer draws them as tubes
+    when show_edges=True or when "show edges" is ticked. edge_radius=0 means 3% of the
+    median edge length.
+
+    Arrays are numpy float32 / int32 (sent to the browser as binary, see
+    kayviz.webscope.wire); ``kayviz.webscope.wire.jsonable`` turns them into lists.
     """
-    verts = np.array(vertices, dtype=np.float32)
-    faces_list = [np.asarray(f).flatten().tolist() for f in faces]
+    verts = _f32(vertices)
+    poly_edges = _polygon_edges(faces)
 
-    # Always extract unique polygon edges from original faces (before triangulation).
-    seen = set()
-    vi_list, vj_list = [], []
-    for f in faces_list:
-        n = len(f)
-        for k in range(n):
-            a, b = f[k], f[(k + 1) % n]
-            key = (min(a, b), max(a, b))
-            if key not in seen:
-                seen.add(key)
-                vi_list.append(a)
-                vj_list.append(b)
-    vi = np.array(vi_list, dtype=np.int32)
-    vj = np.array(vj_list, dtype=np.int32)
-    poly_edge_verts = np.vstack((verts[vi], verts[vj]))
-    poly_edge_conn  = np.column_stack([np.arange(len(vi)), np.arange(len(vi)) + len(vi)])
-
-    if show_edges:
-        edges_dict = edge_child(name, poly_edge_verts, poly_edge_conn, color=edge_color, radius=edge_radius)
-
-    first_len = len(faces_list[0]) if faces_list else 3
-    is_ragged = any(len(f) != first_len for f in faces_list)
+    try:
+        F = np.asarray(faces, dtype=np.int64)
+        uniform = F.ndim == 2
+    except (ValueError, TypeError):
+        uniform = False
+    first_len = F.shape[1] if uniform and F.size else (len(faces[0]) if len(faces) else 3)
 
     tris_per_face = None
-    if is_ragged or (face_size is None and first_len > 4):
+    if not uniform or (face_size is None and first_len > 4):
+        faces_list = [np.asarray(f).ravel().tolist() for f in faces]
         tris = []
         tris_per_face = []
         for f in faces_list:
-            n_tris = len(f) - 2
             for t in range(1, len(f) - 1):
                 tris.append([f[0], f[t], f[t + 1]])
-            tris_per_face.append(n_tris)
-        faces_list = tris
+            tris_per_face.append(len(f) - 2)
+        faces_arr = np.array(tris, dtype=np.int32).reshape(-1)
         fs = 3
     else:
+        faces_arr = _i32(F)
         fs = face_size or first_len
 
-    faces_arr = np.array(faces_list, dtype=np.int32)
     mesh_dict = {
-        "type":            "surface_mesh",
-        "name":            name,
-        "vertices":        verts.flatten().tolist(),
-        "faces":           faces_arr.flatten().tolist(),
-        "face_size":       int(fs),
-        "tris_per_face":   tris_per_face,
-        "poly_edge_verts": poly_edge_verts.flatten().tolist(),
-        "poly_edge_conn":  poly_edge_conn.flatten().tolist(),
-        "color":           [float(c) for c in color],
-        "opacity":         float(opacity),
-        "show_edges":      bool(show_edges),
-        "show":            bool(show),
+        "type":          "surface_mesh",
+        "name":          name,
+        "vertices":      verts,
+        "faces":         faces_arr,
+        "face_size":     int(fs),
+        "tris_per_face": None if tris_per_face is None else np.array(tris_per_face, np.int32),
+        "poly_edges":    poly_edges.ravel(),
+        "color":         [float(c) for c in color],
+        "opacity":       float(opacity),
+        "show_edges":    bool(show_edges),
+        "show":          bool(show),
     }
+    if show_edges:
+        mesh_dict["edge_color"]  = [float(c) for c in edge_color]
+        mesh_dict["edge_radius"] = float(edge_radius)
     if material is not None:
         mesh_dict["material"] = str(material)
-
-    if show_edges:
-        return [mesh_dict, edges_dict]
     return mesh_dict
 
 
@@ -101,8 +120,8 @@ def curve_network(name: str, vertices, edges, color=(0.8, 0.2, 0.2), radius: flo
     return {
         "type":     "curve_network",
         "name":     name,
-        "vertices": np.array(vertices, dtype=np.float32).flatten().tolist(),
-        "edges":    np.array(edges,    dtype=np.int32).flatten().tolist(),
+        "vertices": _f32(vertices),
+        "edges":    _i32(edges),
         "color":    [float(c) for c in color],
         "radius":   float(radius),
         "show":     bool(show),
@@ -114,7 +133,7 @@ def point_cloud(name: str, points, color=(0.2, 0.5, 0.8), radius=0.0005, show: b
     return {
         "type":   "point_cloud",
         "name":   name,
-        "points": np.array(points, dtype=np.float32).flatten().tolist(),
+        "points": _f32(points),
         "color":  [float(c) for c in color],
         "radius": float(radius),
         "show":   bool(show),
@@ -127,8 +146,8 @@ def edge_child(target_name: str, vertices, edges,
     return {
         "type":     "edge_child",
         "target":   target_name,
-        "vertices": np.array(vertices, dtype=np.float32).flatten().tolist(),
-        "edges":    np.array(edges,    dtype=np.int32).flatten().tolist(),
+        "vertices": _f32(vertices),
+        "edges":    _i32(edges),
         "color":    [float(c) for c in color],
         "radius":   float(radius),
     }
@@ -147,7 +166,7 @@ def scalar_quantity(target_name: str, field_name: str, values, defined_on="verti
         "target":     target_name,
         "name":       field_name,
         "defined_on": defined_on,
-        "values":     np.array(values, dtype=np.float32).tolist(),
+        "values":     _f32(values),
     }
     if show is not None:
         d["show"] = bool(show)
@@ -173,7 +192,7 @@ def vector_quantity(target_name: str, field_name: str, vectors, defined_on="vert
         "target":     target_name,
         "name":       field_name,
         "defined_on": defined_on,
-        "vectors":    np.array(vectors, dtype=np.float32).flatten().tolist(),
+        "vectors":    _f32(vectors),
         "length":     float(length),
         "radius":     float(radius),
     }
@@ -195,8 +214,8 @@ def vector_field(name: str, origins, vectors, length: float = 0.05,
     return {
         "type":    "vector_field",
         "name":    name,
-        "origins": np.array(origins, dtype=np.float32).flatten().tolist(),
-        "vectors": np.array(vectors, dtype=np.float32).flatten().tolist(),
+        "origins": _f32(origins),
+        "vectors": _f32(vectors),
         "length":  float(length),
         "radius":  float(radius),
         "color":   [float(c) for c in color],

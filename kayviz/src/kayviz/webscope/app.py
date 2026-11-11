@@ -18,7 +18,7 @@ import traceback
 from typing import Callable
 from fastapi import WebSocket, WebSocketDisconnect
 from .state_schema import to_json, apply_client_state as _apply_cs
-from .broadcast_mixin import send
+from .wire import send, Socket
 
 
 async def _send_error(ws: WebSocket, exc: Exception) -> None:
@@ -155,7 +155,7 @@ class GUIApp:
 
     async def _run_streaming(self, fn, data: dict, ws: WebSocket) -> None:
         try:
-            await fn(self.state, data, ws)
+            await fn(self.state, data, Socket(ws))
         except asyncio.CancelledError:
             raise
         except Exception as exc:

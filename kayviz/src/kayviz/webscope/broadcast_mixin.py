@@ -8,19 +8,9 @@ Used by both ScriptApp and CallbackApp so geometry pushed by the user
 from __future__ import annotations
 
 import asyncio
-import json
 from fastapi import WebSocket
 
-
-async def encode(msg: dict) -> str:
-    """JSON-encode a message in a worker thread: a scene of tens of MB takes
-    ~0.5 s to encode and would otherwise stall every connection on the loop."""
-    return await asyncio.to_thread(json.dumps, msg, separators=(",", ":"))
-
-
-async def send(ws: WebSocket, msg: dict) -> None:
-    """Send one message to one socket, encoded off the event loop."""
-    await ws.send_text(await encode(msg))
+from .wire import encode_async, send, send_encoded   # send re-exported for the apps
 
 
 class BroadcastMixin:
@@ -91,10 +81,10 @@ class BroadcastMixin:
         clients = list(self._clients)
         if not clients:
             return
-        text = await encode(msg)            # once for all clients
+        data = await encode_async(msg)      # once for all clients
 
         async def send_one(ws):
-            await asyncio.wait_for(ws.send_text(text), timeout=self.SEND_TIMEOUT)
+            await asyncio.wait_for(send_encoded(ws, data), timeout=self.SEND_TIMEOUT)
 
         results = await asyncio.gather(*(send_one(ws) for ws in clients),
                                        return_exceptions=True)

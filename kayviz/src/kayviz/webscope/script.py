@@ -769,7 +769,8 @@ def _send(op: str, objects: list = None, name: str = None) -> None:
                 "clear":  lambda: script.do_clear()}[op]()
         _run_on_loop(coro)
         return
-    path, payload = {"push":   ("push",   {"objects": objects}),
+    from .wire import jsonable
+    path, payload = {"push":   ("push",   {"objects": jsonable(objects)}),
                      "remove": ("remove", {"name": name}),
                      "clear":  ("push",   {"action": "clear"})}[op]
     try:

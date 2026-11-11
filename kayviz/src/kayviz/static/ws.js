@@ -34,6 +34,33 @@ async function checkServerInstance() {
   } catch (_) { /* server went away again; onclose retries */ }
 }
 
+// ── Binary frames (kayviz/webscope/wire.py) ───────────────────────────────────
+// uint32 header length | JSON header | pad to 8 | arrays. In the header every array
+// is {"__b": offset, "t": "f32"|"i32"|"u32", "n": length}, revived here as a typed
+// array that owns its memory (a copy, so the frame buffer can be freed).
+const _ARRAY_TYPES = { f32: Float32Array, i32: Int32Array, u32: Uint32Array };
+
+export function decodeFrame(buf) {
+  const headLen = new DataView(buf).getUint32(0, true);
+  const header  = JSON.parse(new TextDecoder().decode(new Uint8Array(buf, 4, headLen)));
+  const base    = (4 + headLen + 7) & ~7;
+  const revive  = o => {
+    if (Array.isArray(o)) {
+      for (let i = 0; i < o.length; i++) if (o[i] && typeof o[i] === 'object') o[i] = revive(o[i]);
+      return o;
+    }
+    if (o && typeof o === 'object') {
+      if ('__b' in o) {
+        const T = _ARRAY_TYPES[o.t], start = base + o.__b;
+        return new T(buf.slice(start, start + o.n * T.BYTES_PER_ELEMENT));
+      }
+      for (const k in o) if (o[k] && typeof o[k] === 'object') o[k] = revive(o[k]);
+    }
+    return o;
+  };
+  return revive(header);
+}
+
 export class WSClient {
   /**
    * @param {string} url     WebSocket URL, e.g. 'ws://localhost:8000/api/lmesh/ws'
@@ -63,6 +90,7 @@ export class WSClient {
   _connect() {
     this._pending ??= [];
     this.ws = new WebSocket(this._url);
+    this.ws.binaryType = 'arraybuffer';
 
     this.ws.onopen = () => {
       const reconnected = this._downSince != null;
@@ -75,8 +103,8 @@ export class WSClient {
 
     this.ws.onmessage = e => {
       let data;
-      try { data = JSON.parse(e.data); }
-      catch { console.error('Bad JSON from server:', e.data); return; }
+      try { data = typeof e.data === 'string' ? JSON.parse(e.data) : decodeFrame(e.data); }
+      catch (err) { console.error('Bad message from server:', err); return; }
 
       if (data.action === 'clear') {
         this.viewer.clearAll();

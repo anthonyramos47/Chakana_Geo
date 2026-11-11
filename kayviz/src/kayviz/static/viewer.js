@@ -30,6 +30,8 @@ export class Viewer {
     this.scene    = scene;
     this.matLib   = matLib;
     this._objects = new Map();  // name → SceneEntry
+    this._batch   = 0;          // > 0 inside applyMessage: one 'viewer-changed' at the end
+    this._emitDue = false;
     // one shader for every surface mesh (scene panel "Shader"); kept across reloads
     let saved = null;
     try { saved = localStorage.getItem('kayviz.material'); } catch (_) {}
@@ -157,6 +159,7 @@ export class Viewer {
     e.mesh.geometry?.dispose();
     const mats = Array.isArray(e.mesh.material) ? e.mesh.material : [e.mesh.material];
     mats.forEach(m => m?.dispose());
+    e.mesh.dispose?.();   // InstancedMesh: frees its instance buffers
     this.scene.add(newObj);
     e.mesh = newObj;
     this._emit();
@@ -173,6 +176,7 @@ export class Viewer {
     e.mesh.geometry?.dispose();
     const mats = Array.isArray(e.mesh.material) ? e.mesh.material : [e.mesh.material];
     mats.forEach(m => m?.dispose());
+    e.mesh.dispose?.();   // InstancedMesh: frees its instance buffers
     this.scene.add(newMesh);
     e.mesh = newMesh;
   }
@@ -188,6 +192,7 @@ export class Viewer {
     e.mesh.geometry?.dispose();
     const mats = Array.isArray(e.mesh.material) ? e.mesh.material : [e.mesh.material];
     mats.forEach(m => m?.dispose());
+    e.mesh.dispose?.();   // InstancedMesh: frees its instance buffers
     this.scene.add(newMesh);
     e.mesh = newMesh;
   }
@@ -391,6 +396,7 @@ export class Viewer {
     child.mesh.geometry?.dispose();
     const mats = Array.isArray(child.mesh.material) ? child.mesh.material : [child.mesh.material];
     mats.forEach(m => m?.dispose());
+    child.mesh.dispose?.();   // InstancedMesh: frees its instance buffers
     this.scene.add(newMesh);
     child.mesh   = newMesh;
     child.length = length;
@@ -412,6 +418,7 @@ export class Viewer {
     child.mesh.geometry?.dispose();
     const mats = Array.isArray(child.mesh.material) ? child.mesh.material : [child.mesh.material];
     mats.forEach(m => m?.dispose());
+    child.mesh.dispose?.();   // InstancedMesh: frees its instance buffers
     this.scene.add(newMesh);
     child.mesh   = newMesh;
     child.radius = radius;
@@ -462,6 +469,15 @@ export class Viewer {
   // ── Server message dispatcher ─────────────────────────────────────────────
 
   applyMessage(data) {
+    this._batch++;
+    try { this._applyObjects(data); }
+    finally {
+      this._batch--;
+      if (!this._batch && this._emitDue) { this._emitDue = false; this._emit(); }
+    }
+  }
+
+  _applyObjects(data) {
     // Objects registered with show=false; hidden after the whole batch so the
     // children that arrive after them (e.g. the edge_child of show_edges) hide too.
     // A quantity with show=true takes its target off that list and shows it.
@@ -480,10 +496,20 @@ export class Viewer {
                                    obj.opacity ?? 1.0, obj.material ?? null);
           const en = this._objects.get(obj.name);
           if (en) {
-            if (obj.tris_per_face)   en.opts.trisPerFace = obj.tris_per_face;
-            if (obj.poly_edge_verts) en.opts.edgeVerts   = obj.poly_edge_verts;
-            if (obj.poly_edge_conn)  en.opts.edgeIdx     = obj.poly_edge_conn;
-            if (obj.show_edges)      this.toggleEdges(obj.name, true);
+            if (obj.tris_per_face) en.opts.trisPerFace = obj.tris_per_face;
+            if (obj.poly_edges) {
+              // index pairs into the mesh's own vertices
+              en.opts.edgeVerts = en.opts.vertices;
+              en.opts.edgeIdx   = obj.poly_edges;
+            } else if (obj.poly_edge_verts) {
+              // older servers: coordinates of both ends per edge
+              en.opts.edgeVerts = obj.poly_edge_verts;
+              en.opts.edgeIdx   = obj.poly_edge_conn;
+            }
+            if (obj.show_edges && en.opts.edgeIdx) {
+              this.addEdgeChild(obj.name, en.opts.edgeVerts, en.opts.edgeIdx,
+                                obj.edge_color ?? [0.1, 0.1, 0.1], obj.edge_radius ?? 0);
+            }
           }
           break;
         }
@@ -636,60 +662,60 @@ export class Viewer {
   }
 
   _buildArrowField(origins, vectors, length, radius, color) {
+    // One shaft + cone geometry along +y, instanced per arrow (rotation + origin):
+    // geometry memory and build time no longer grow with the number of arrows.
     const SEGS   = 7;
-    const shaftR = radius;
-    const coneR  = radius * 2.5;
-    const shaftL = length * 0.80;
-    const coneL  = length * 0.20;
+    const shaftL = length * 0.80, coneL = length * 0.20;
+    const shaft  = new THREE.CylinderGeometry(radius, radius, shaftL, SEGS, 1, false);
+    shaft.translate(0, shaftL / 2, 0);
+    const cone   = new THREE.ConeGeometry(radius * 2.5, coneL, SEGS, 1, false);
+    cone.translate(0, shaftL + coneL / 2, 0);
+    const geo = mergeGeometries([shaft, cone], false);
+    shaft.dispose(); cone.dispose();
 
-    const mat    = new THREE.MeshPhongMaterial({ color: this._rgb(color), shininess: 40 });
-    const up     = new THREE.Vector3(0, 1, 0);
-    const matrix = new THREE.Matrix4();
-    const merged = [];
-    const N      = origins.length / 3;
-
+    const mat  = new THREE.MeshPhongMaterial({ color: this._rgb(color), shininess: 40 });
+    const N    = Math.floor(origins.length / 3);
+    const up   = new THREE.Vector3(0, 1, 0), dir = new THREE.Vector3();
+    const quat = new THREE.Quaternion(), pos = new THREE.Vector3(), one = new THREE.Vector3(1, 1, 1);
+    const m    = new THREE.Matrix4();
+    const mesh = new THREE.InstancedMesh(geo, mat, N);
+    let k = 0;
     for (let i = 0; i < N; i++) {
-      const ox = origins[i*3], oy = origins[i*3+1], oz = origins[i*3+2];
-      const vx = vectors[i*3], vy = vectors[i*3+1], vz = vectors[i*3+2];
-      const len = Math.sqrt(vx*vx + vy*vy + vz*vz);
-      if (len < 1e-9) continue;
-      const dir  = new THREE.Vector3(vx/len, vy/len, vz/len);
-      const quat = dir.dot(up) < -0.9999
-        ? new THREE.Quaternion(1, 0, 0, 0)
-        : new THREE.Quaternion().setFromUnitVectors(up, dir);
-
-      const shaftCenter = new THREE.Vector3(
-        ox + dir.x * shaftL * 0.5, oy + dir.y * shaftL * 0.5, oz + dir.z * shaftL * 0.5);
-      matrix.compose(shaftCenter, quat, new THREE.Vector3(1, 1, 1));
-      const shaft = new THREE.CylinderGeometry(shaftR, shaftR, shaftL, SEGS, 1, false);
-      shaft.applyMatrix4(matrix);
-      merged.push(shaft);
-
-      const coneCenter = new THREE.Vector3(
-        ox + dir.x * (shaftL + coneL * 0.5),
-        oy + dir.y * (shaftL + coneL * 0.5),
-        oz + dir.z * (shaftL + coneL * 0.5));
-      matrix.compose(coneCenter, quat, new THREE.Vector3(1, 1, 1));
-      const cone = new THREE.ConeGeometry(coneR, coneL, SEGS, 1, false);
-      cone.applyMatrix4(matrix);
-      merged.push(cone);
+      dir.set(vectors[i*3], vectors[i*3+1], vectors[i*3+2]);
+      const len = dir.length();
+      if (!(len > 1e-9)) continue;
+      dir.divideScalar(len);
+      if (dir.dot(up) < -0.9999) quat.set(1, 0, 0, 0);
+      else quat.setFromUnitVectors(up, dir);
+      pos.set(origins[i*3], origins[i*3+1], origins[i*3+2]);
+      mesh.setMatrixAt(k++, m.compose(pos, quat, one));
     }
-
-    if (merged.length === 0) return new THREE.Mesh(new THREE.BufferGeometry(), mat);
-    const geo = mergeGeometries(merged, false);
-    merged.forEach(g => g.dispose());
-    return new THREE.Mesh(geo, mat);
+    mesh.count = k;                      // zero-length vectors are skipped
+    mesh.instanceMatrix.needsUpdate = true;
+    mesh.computeBoundingSphere();
+    return mesh;
   }
 
   _buildMeshGeo(vertices, faces, faceSize) {
     const geo = new THREE.BufferGeometry();
-    geo.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
-    const indices = [];
-    for (let i = 0; i < faces.length; i += faceSize) {
-      for (let t = 1; t < faceSize - 1; t++)
-        indices.push(faces[i], faces[i+t], faces[i+t+1]);
+    // a Float32Array from a binary frame is used as is (Float32BufferAttribute would copy it)
+    const pos = vertices instanceof Float32Array ? vertices : new Float32Array(vertices);
+    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    let indices;
+    if (faceSize === 3) {
+      indices = faces instanceof Int32Array
+        ? new Uint32Array(faces.buffer, faces.byteOffset, faces.length)
+        : Uint32Array.from(faces);
+    } else {
+      const k = faceSize - 2, n = faces.length / faceSize;
+      indices = new Uint32Array(n * k * 3);
+      let o = 0;
+      for (let i = 0; i < faces.length; i += faceSize)
+        for (let t = 1; t < faceSize - 1; t++) {
+          indices[o++] = faces[i]; indices[o++] = faces[i+t]; indices[o++] = faces[i+t+1];
+        }
     }
-    geo.setIndex(indices);
+    geo.setIndex(new THREE.BufferAttribute(indices, 1));
     geo.computeVertexNormals();
     return geo;
   }
@@ -737,7 +763,10 @@ export class Viewer {
 
   _rgb([r, g, b]) { return new THREE.Color(r, g, b); }
 
-  _emit() { document.dispatchEvent(new CustomEvent('viewer-changed')); }
+  _emit() {
+    if (this._batch) { this._emitDue = true; return; }
+    document.dispatchEvent(new CustomEvent('viewer-changed'));
+  }
 
   _buildSphereInstances(pts, count, color, radius) {
     const geo = new THREE.SphereGeometry(radius, 12, 8);

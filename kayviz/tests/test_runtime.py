@@ -23,10 +23,12 @@ def _run(body: str, timeout: float = 60.0) -> dict:
         from websockets.sync.client import connect
         import kayviz as kv
 
+        from kayviz.webscope.wire import decode
+
         def recv_until(ws, pred, timeout=5.0):
             end = time.time() + timeout
             while time.time() < end:
-                msg = json.loads(ws.recv(timeout=max(0.1, end - time.time())))
+                msg = decode(ws.recv(timeout=max(0.1, end - time.time())))
                 if pred(msg):
                     return msg
             raise TimeoutError("message not received")

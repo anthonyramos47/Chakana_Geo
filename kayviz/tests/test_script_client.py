@@ -34,6 +34,13 @@ def _make_test_fastapi():
 _fastapi = _make_test_fastapi()
 client   = TestClient(_fastapi, raise_server_exceptions=True)
 
+# Serializer dicts carry numpy arrays; over HTTP (attach mode) kayviz sends them
+# through wire.jsonable, so the stand-in client does the same.
+from kayviz.webscope.wire import jsonable
+_raw_post = client.post
+client.post = lambda url, json=None, **kw: _raw_post(
+    url, json=None if json is None else jsonable(json), **kw)
+
 # Reset buffer before each test
 @pytest.fixture(autouse=True)
 def reset_buffer():
@@ -163,3 +170,15 @@ class TestLoad:
         objs = r.json()["objects"]
         assert len(objs) == 1
         assert objs[0]["name"] == "M"
+
+
+class TestStreamedScene:
+    def test_schema_says_the_scene_comes_over_the_websocket(self):
+        assert client.get("/api/script/schema").json()["streams_scene"] is True
+
+    def test_load_without_objects_skips_the_buffer(self):
+        from kayviz import serializers as ser
+        client.post("/api/script/push", json={"objects": [
+            ser.point_cloud("P", np.zeros((2, 3)))]})
+        assert client.post("/api/script/load?objects=false").json()["objects"] == []
+        assert client.post("/api/script/load").json()["objects"]

@@ -436,8 +436,8 @@ case 'wireframe': this.registerWireframe(obj.name, obj.vertices, obj.faces, obj.
 ```python
 def wireframe(name, vertices, faces, color=(0.3, 0.3, 0.3)):
     return { "type": "wireframe", "name": name,
-             "vertices": np.array(vertices, dtype=np.float32).flatten().tolist(),
-             "faces":    np.array(faces,    dtype=np.int32).flatten().tolist(),
+             "vertices": np.array(vertices, dtype=np.float32).ravel(),   # binary on the wire
+             "faces":    np.array(faces,    dtype=np.int32).ravel(),
              "color": list(color) }
 ```
 

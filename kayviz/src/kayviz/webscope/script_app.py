@@ -31,7 +31,8 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from .app import GUIApp
 from .state_schema import gui_state
-from .broadcast_mixin import BroadcastMixin, send
+from .broadcast_mixin import BroadcastMixin
+from .wire import send
 
 
 @gui_state
