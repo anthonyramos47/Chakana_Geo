@@ -31,7 +31,7 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from .app import GUIApp
 from .state_schema import gui_state
-from .broadcast_mixin import BroadcastMixin
+from .broadcast_mixin import BroadcastMixin, send
 
 
 @gui_state
@@ -72,10 +72,8 @@ class ScriptApp(BroadcastMixin, GUIApp):
 
         if self._buffer:
             try:
-                await ws.send_json({
-                    "action":  "scene_update",
-                    "objects": self._buffer_snapshot(),
-                })
+                await send(ws, {"action": "scene_update",
+                                "objects": self._buffer_snapshot()})
             except Exception:
                 pass
 

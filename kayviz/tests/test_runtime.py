@@ -194,3 +194,113 @@ def test_gui_script_gets_own_viewer_even_if_shared_one_runs():
     assert out["port"] != port
     assert "mine" in out["apps"]
 
+
+
+def test_slow_callback_does_not_block_server_and_reaches_every_tab():
+    # The callback runs in a worker thread: the server keeps answering while it
+    # runs, and its result goes to every tab of the app.
+    out = _run('''
+        kv.init()
+        state = {"r": 1.0}
+        def gui():
+            if kv.imgui.button("Slow"):
+                time.sleep(1.5)
+                kv.register_point_cloud("Slow", np.zeros((2, 3)))
+        kv.set_user_callback(gui, app_name="slow")
+        base = kv.url()
+        wsurl = base.replace("http", "ws") + "/api/slow/ws"
+        with connect(wsurl) as a, connect(wsurl) as b:
+            a.send(json.dumps({"action": "_callback", "trigger": "Slow", "state": {}}))
+            time.sleep(0.3)
+            t = time.time()
+            requests.get(base + "/api/script/ping", timeout=5)
+            out["ping_s"] = time.time() - t
+            out["a"] = recv_until(a, lambda m: m.get("action") == "scene_update")["objects"][0]["name"]
+            out["b"] = recv_until(b, lambda m: m.get("action") == "scene_update")["objects"][0]["name"]
+    ''')
+    assert out["ping_s"] < 0.5
+    assert out["a"] == out["b"] == "Slow"
+
+
+def test_slider_events_coalesce_while_callback_runs():
+    # Ten quick values of one slider behind a slow callback: queued older values
+    # are replaced, so far fewer runs happen and the last one sees the last value.
+    out = _run('''
+        kv.init()
+        state = {"r": 0.0}
+        seen = []
+        def gui():
+            changed, r = kv.imgui.slider_float("R", state, "r", 0.0, 10.0)
+            if changed:
+                seen.append(r)
+                time.sleep(0.3)
+                kv.register_point_cloud("P", np.ones((1, 3)) * r)
+        kv.set_user_callback(gui, app_name="co")
+        with connect(kv.url().replace("http", "ws") + "/api/co/ws") as ws:
+            for i in range(1, 11):
+                ws.send(json.dumps({"action": "_callback", "trigger": "r",
+                                    "state": {"r": float(i)}}))
+            recv_until(ws, lambda m: m.get("action") == "scene_update"
+                       and m["objects"][0]["points"][0] == 10.0, timeout=10)
+        out["seen"] = seen
+    ''')
+    assert out["seen"][-1] == 10.0
+    assert len(out["seen"]) <= 3
+
+
+def test_pushes_from_main_thread_are_not_captured_by_a_running_callback():
+    out = _run('''
+        kv.init()
+        def gui():
+            if kv.imgui.button("Go"):
+                time.sleep(1.0)
+                kv.register_point_cloud("FromCallback", np.zeros((1, 3)))
+        kv.set_user_callback(gui, app_name="tl")
+        base = kv.url()
+        with connect(base.replace("http", "ws") + "/api/tl/ws") as app_ws, \\
+             connect(base.replace("http", "ws") + "/api/script/ws") as script_ws:
+            app_ws.send(json.dumps({"action": "_callback", "trigger": "Go", "state": {}}))
+            time.sleep(0.3)
+            kv.register_point_cloud("FromMain", np.zeros((1, 3)))     # while it runs
+            msg = recv_until(script_ws, lambda m: m.get("action") == "scene_update")
+            out["script"] = [o["name"] for o in msg["objects"]]
+            msg = recv_until(app_ws, lambda m: m.get("action") == "scene_update")
+            out["app"] = [o["name"] for o in msg["objects"]]
+    ''')
+    assert out["script"] == ["FromMain"]
+    assert out["app"] == ["FromCallback"]
+
+
+def test_stop_reaches_a_running_streaming_action():
+    # A "stop" sent while an async (streaming) action runs is handled at once.
+    out = _run('''
+        import asyncio
+        from dataclasses import dataclass
+        class App(kv.GUIApp):
+            name = "opt"
+            @kv.gui_state
+            @dataclass
+            class state_cls:
+                running: bool = False
+            def register_actions(self):
+                self.action("run", self._run)
+                self.action("stop", self._stop)
+            async def _run(self, state, data, ws):
+                state.running = True
+                n = 0
+                while state.running and n < 200:
+                    n += 1
+                    await asyncio.sleep(0.05)
+                await ws.send_json({"action": "done", "steps": n})
+            def _stop(self, state, data):
+                state.running = False
+                return {"action": "stopped"}
+        kv.register_app(App())
+        kv.init()
+        with connect(kv.url().replace("http", "ws") + "/api/opt/ws") as ws:
+            ws.send(json.dumps({"action": "run"}))
+            time.sleep(0.3)
+            ws.send(json.dumps({"action": "stop"}))
+            out["steps"] = recv_until(ws, lambda m: m.get("action") == "done")["steps"]
+    ''')
+    assert out["steps"] < 50

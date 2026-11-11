@@ -18,6 +18,14 @@ import traceback
 from typing import Callable
 from fastapi import WebSocket, WebSocketDisconnect
 from .state_schema import to_json, apply_client_state as _apply_cs
+from .broadcast_mixin import send
+
+
+async def _send_error(ws: WebSocket, exc: Exception) -> None:
+    try:
+        await send(ws, {"action": "error", "message": str(exc)})
+    except Exception:
+        pass
 
 
 class GUIApp:
@@ -51,6 +59,7 @@ class GUIApp:
             raise TypeError(f"{self.__class__.__name__} must define state_cls")
         self.state = self.state_cls()
         self._actions: dict[str, Callable] = {}
+        self._handler_lock = None    # asyncio.Lock, created on the serving loop
         self.register_actions()
 
     # ── Public API ────────────────────────────────────────────────────────────
@@ -62,10 +71,15 @@ class GUIApp:
         Sync handlers: fn(state, data) → dict | list | None
           - Return a scene snapshot dict to send to the client.
           - Return None to suppress any response.
+          - Run in a worker thread, one at a time per app, so a slow handler
+            does not freeze the server (other tabs, pings, screenshots).
 
         Async (streaming) handlers: async fn(state, data, ws) → None
           - Receive ws directly; send as many messages as needed.
           - Must send its own final message or nothing (no auto-send).
+          - Run as a background task, so the connection keeps reading: a
+            "stop" action sent during a "run" is handled while it runs. Heavy
+            synchronous work inside should go through ``asyncio.to_thread``.
         """
         self._actions[name] = fn
 
@@ -93,6 +107,7 @@ class GUIApp:
     async def handle_websocket(self, ws: WebSocket):
         """Main WebSocket handler — called by the framework router."""
         await ws.accept()
+        tasks: set[asyncio.Task] = set()     # running streaming handlers
         try:
             while True:
                 raw    = await ws.receive_text()
@@ -106,32 +121,46 @@ class GUIApp:
 
                 fn = self._actions.get(action)
                 if fn is None:
-                    await ws.send_json({
-                        "action": "error",
-                        "message": f"Unknown action: '{action}'"
-                    })
+                    await send(ws, {"action": "error",
+                                    "message": f"Unknown action: '{action}'"})
                     continue
 
-                try:
-                    if asyncio.iscoroutinefunction(fn):
-                        # Streaming handler — gets ws to send multiple messages
-                        await fn(self.state, data, ws)
-                    else:
-                        result = fn(self.state, data)
-                        if result is not None:
-                            await ws.send_json(result)
-                except Exception as exc:
-                    traceback.print_exc()
-                    try:
-                        await ws.send_json({"action": "error", "message": str(exc)})
-                    except Exception:
-                        pass
+                if asyncio.iscoroutinefunction(fn):
+                    task = asyncio.create_task(self._run_streaming(fn, data, ws))
+                    tasks.add(task)
+                    task.add_done_callback(tasks.discard)
+                else:
+                    await self._run_sync(fn, data, ws)
 
         except WebSocketDisconnect as exc:
             print(f"[ws:{self.name}] client disconnected (code={exc.code})")
         except Exception as exc:
             print(f"[ws:{self.name}] unhandled exception: {exc}")
             traceback.print_exc()
+        finally:
+            for t in tasks:
+                t.cancel()
+
+    async def _run_sync(self, fn, data: dict, ws: WebSocket) -> None:
+        """A sync handler in a worker thread (one at a time per app); reply to ws."""
+        self._handler_lock = self._handler_lock or asyncio.Lock()
+        try:
+            async with self._handler_lock:
+                result = await asyncio.to_thread(fn, self.state, data)
+            if result is not None:
+                await send(ws, result)
+        except Exception as exc:
+            traceback.print_exc()
+            await _send_error(ws, exc)
+
+    async def _run_streaming(self, fn, data: dict, ws: WebSocket) -> None:
+        try:
+            await fn(self.state, data, ws)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            traceback.print_exc()
+            await _send_error(ws, exc)
 
     # ── Helpers for subclasses ────────────────────────────────────────────────
 

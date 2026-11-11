@@ -37,6 +37,7 @@ import asyncio
 import inspect
 import os
 import sys
+import threading
 import time
 import webbrowser
 from typing import Optional
@@ -56,11 +57,19 @@ _mode: Optional[str] = None         # None | "local" | "hosted" | "attached"
 _loop: Optional[asyncio.AbstractEventLoop] = None   # loop of a server in this process
 _opened: set = set()                # app names a browser tab was opened for
 
-# _push_to_sink is a hook used by CallbackApp._CallbackPushCapture to redirect
-# geometry pushes that happen inside a user callback away from the script
-# channel and into the CallbackApp broadcast buffer instead.
-# None means: use the normal push path.
-_push_to_sink: Optional[callable] = None
+# Push sink: CallbackApp._CallbackPushCapture redirects geometry pushed inside a
+# user callback away from the script channel and into the app's buffer. The
+# callback runs in a worker thread, so the sink is per thread: pushes made by
+# other threads (the script's main thread) at the same time still go out normally.
+_sink_local = threading.local()
+
+
+def _push_sink() -> Optional[callable]:
+    return getattr(_sink_local, "sink", None)
+
+
+def _set_push_sink(sink: Optional[callable]) -> None:
+    _sink_local.sink = sink
 
 # App opened by show(): the last app registered from this process.
 _default_app: Optional[str] = None
@@ -208,8 +217,9 @@ def push_objects(objects: list) -> None:
     """Push a list of pre-built serializer dicts (from Scene or ser.lmesh_scene etc.)."""
     if not objects:
         return
-    if _push_to_sink is not None:
-        _push_to_sink(objects)
+    sink = _push_sink()
+    if sink is not None:
+        sink(objects)
         return
     _send("push", objects=objects)
 
@@ -229,8 +239,9 @@ def clear() -> None:
     # Inside a user callback (CallbackApp), geometry is captured into a local
     # sink rather than sent to the script channel — route the clear through
     # the same hook so it clears that app's buffer.
-    if _push_to_sink is not None:
-        _push_to_sink([{"action": "clear"}])
+    sink = _push_sink()
+    if sink is not None:
+        sink([{"action": "clear"}])
         return
     _send("clear")
 

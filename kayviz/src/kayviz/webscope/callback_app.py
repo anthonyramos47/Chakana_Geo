@@ -25,6 +25,7 @@ Geometry pushed inside the callback is routed through the broadcast buffer
 from __future__ import annotations
 
 import asyncio
+import json
 import traceback
 from dataclasses import dataclass, make_dataclass
 from typing import Callable
@@ -32,7 +33,7 @@ from typing import Callable
 from fastapi import WebSocket, WebSocketDisconnect
 
 from .app import GUIApp
-from .broadcast_mixin import BroadcastMixin
+from .broadcast_mixin import BroadcastMixin, send
 from .state_schema import gui_state
 from kayviz.webscope import imgui as _imgui
 
@@ -88,8 +89,13 @@ class CallbackApp(BroadcastMixin, GUIApp):
         try:
             self._callback_fn()
         except Exception:
-            pass  # schema capture must never crash the server
+            # Must not crash the server, but widgets after the error are missing.
+            print(f"[kayviz] {self.name}: the GUI callback raised while its widgets "
+                  "were being collected; widgets after the error will be missing:",
+                  flush=True)
+            traceback.print_exc()
         self._widget_schema = list(ctx.schema)
+        self._buttons = {w["key"] for w in self._widget_schema if w["kind"] == "button"}
 
     # ── GUIApp overrides ──────────────────────────────────────────────────────
 
@@ -114,62 +120,91 @@ class CallbackApp(BroadcastMixin, GUIApp):
 
         if self._buffer:
             try:
-                await ws.send_json({
-                    "action":  "scene_update",
-                    "objects": self._buffer_snapshot(),
-                })
+                await send(ws, {"action": "scene_update",
+                                "objects": self._buffer_snapshot()})
             except Exception:
                 pass
 
+        # Widget events are queued per connection and run one after another by
+        # _drain while this loop keeps reading, so a newer value of a slider
+        # replaces its queued older one instead of piling up behind a slow callback.
+        queue: list[dict] = []
+        wake = asyncio.Event()
+        worker = asyncio.create_task(self._drain(queue, wake, ws))
         try:
-            import json
-            from .state_schema import apply_client_state as _apply_cs
-
             while True:
-                raw  = await ws.receive_text()
-                data = json.loads(raw)
+                data = json.loads(await ws.receive_text())
                 action = data.get("action", "")
-
                 if action == "_set_state":
                     # AutoPanel sends this on every slider drag — ignore for
                     # CallbackApp (state lives in the user's dict, not self.state)
                     continue
-
-                fn = self._actions.get(action)
-                if fn is None:
-                    await ws.send_json({
-                        "action":  "error",
-                        "message": f"Unknown action: '{action}'",
-                    })
+                if action not in self._actions:
+                    await send(ws, {"action": "error",
+                                    "message": f"Unknown action: '{action}'"})
                     continue
-
-                try:
-                    if asyncio.iscoroutinefunction(fn):
-                        await fn(self.state, data, ws)
-                    else:
-                        result = fn(self.state, data)
-                        if result is not None:
-                            await ws.send_json(result)
-                except Exception as exc:
-                    traceback.print_exc()
-                    try:
-                        await ws.send_json({"action": "error", "message": str(exc)})
-                    except Exception:
-                        pass
-
+                self._enqueue(queue, data)
+                wake.set()
         except WebSocketDisconnect as exc:
             print(f"[ws:{self.name}] client disconnected (code={exc.code})")
         except Exception as exc:
             print(f"[ws:{self.name}] unhandled exception: {exc}")
             traceback.print_exc()
         finally:
+            worker.cancel()
             self._remove_client(ws)
 
-    # ── _callback action handler ──────────────────────────────────────────────
+    def _enqueue(self, queue: list[dict], data: dict) -> None:
+        """Queue a widget event; a slider/checkbox/dropdown event replaces a queued
+        event of the same widget (its payload already holds the newest value).
+        Button clicks are never merged."""
+        trig = data.get("trigger", "")
+        if data.get("action") == "_callback" and trig not in self._buttons:
+            for i, q in enumerate(queue):
+                if q.get("action") == "_callback" and q.get("trigger") == trig:
+                    queue[i] = data
+                    return
+        queue.append(data)
 
-    def _handle_callback(self, state, data: dict):
+    async def _drain(self, queue: list[dict], wake: asyncio.Event, ws: WebSocket):
+        while True:
+            await wake.wait()
+            wake.clear()
+            while queue:
+                data = queue.pop(0)
+                try:
+                    if data.get("action") == "_callback":
+                        await self._run_callback(data, ws)
+                    else:
+                        await self._run_sync(self._actions[data["action"]], data, ws)
+                except asyncio.CancelledError:
+                    raise
+                except Exception:
+                    traceback.print_exc()     # keep serving the next events
+
+    # ── _callback ─────────────────────────────────────────────────────────────
+
+    async def _run_callback(self, data: dict, ws: WebSocket) -> None:
+        """Run the user callback in a worker thread (one at a time per app: the
+        user's state dict is shared), then buffer and broadcast what it pushed."""
+        self._handler_lock = self._handler_lock or asyncio.Lock()
+        async with self._handler_lock:
+            pushed, error = await asyncio.to_thread(self._call_user, data)
+        if error:
+            try:
+                await send(ws, {"action": "error", "message": error})
+            except Exception:
+                pass
+            return
+        if pushed:
+            # Buffered on the loop (the snapshot for new tabs is read there too),
+            # and sent to every tab of this app, not only the one that clicked.
+            self._buffer_objects(pushed)
+            await self._broadcast({"action": "scene_update", "objects": pushed})
+
+    def _call_user(self, data: dict) -> tuple[list[dict], str | None]:
         """
-        Re-run the user callback in live mode.
+        Re-run the user callback in live mode (in a worker thread).
 
         data expected:
             { "action": "_callback",
@@ -177,26 +212,25 @@ class CallbackApp(BroadcastMixin, GUIApp):
               "state": { key: value, ... }   # current slider/dropdown values
             }
         """
-        trigger = data.get("trigger", "")
-        payload = data.get("state", {})
-
-        # Collect any objects the callback pushes synchronously
         pushed: list[dict] = []
-
         with _CallbackPushCapture(self, pushed):
-            ctx = _imgui._enter_live_mode(trigger, payload)
+            _imgui._enter_live_mode(data.get("trigger", ""), data.get("state", {}))
             try:
                 self._callback_fn()
             except Exception as exc:
                 traceback.print_exc()
-                return {"action": "error", "message": str(exc)}
+                return [], str(exc)
+        return pushed, None
 
+    def _handle_callback(self, state, data: dict):
+        """Run the callback synchronously and return the scene_update (or None).
+        Kept for direct callers; the WebSocket path uses _run_callback."""
+        pushed, error = self._call_user(data)
+        if error:
+            return {"action": "error", "message": error}
         if pushed:
-            # Buffer the objects so reloading clients get the scene back.
             self._buffer_objects(pushed)
-            # Return a scene_update — GUIApp.handle_websocket sends it for us.
             return {"action": "scene_update", "objects": pushed}
-
         return None
 
 
@@ -216,14 +250,10 @@ class _CallbackPushCapture:
 
     def __enter__(self):
         from kayviz.webscope import script as _script
-        self._orig_push = _script._push_to_sink
-
-        def capture(objects: list[dict]):
-            self._sink.extend(objects)
-
-        _script._push_to_sink = capture
+        self._orig_push = _script._push_sink()
+        _script._set_push_sink(self._sink.extend)
         return self
 
     def __exit__(self, *_):
         from kayviz.webscope import script as _script
-        _script._push_to_sink = self._orig_push
+        _script._set_push_sink(self._orig_push)
