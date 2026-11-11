@@ -1,8 +1,9 @@
 # kayviz frontend — API Reference
 
-The browser side of kayviz: Three.js + lil-gui, loaded from a CDN through the import map
-in `index.html` (no build step). Paths below are relative to `kayviz/src/kayviz/`; custom
-panels import these modules through the alias `kayviz/` → `/static/`.
+The browser side of kayviz: Three.js 0.165 + lil-gui, bundled in `static/vendor/` and
+loaded through the import map in `index.html` (no build step, works offline). Paths below
+are relative to `kayviz/src/kayviz/`; custom panels import these modules through the alias
+`kayviz/` → `./static/`. Server URLs are page-relative (`static/urls.js`).
 
 ---
 
@@ -25,7 +26,7 @@ static/
     ├── auto_panel.js     buildSchemaWidgets: widgets from the server schema
     ├── auto_callback_panel.js  generated panel for apps without panel_js
     ├── scene_panel.js    left-side structure list
-    ├── energy_panel.js, lighting_panel.js, script_panel.js
+    ├── energy_panel.js, lighting_panel.js
 ```
 
 **Data flow:**

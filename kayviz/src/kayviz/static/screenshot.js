@@ -1,21 +1,20 @@
 /**
  * screenshot.js — server-driven canvas capture.
  *
- * The scripting API (ws.screenshot / ws.screenshot_grid) cannot read the WebGL
- * canvas directly: the pixels only exist in the browser.  So the browser polls
- * the server for pending capture requests, renders the scene from each
- * requested view, and POSTs the resulting PNGs back.
+ * The scripting API (kv.screenshot / kv.screenshot_views) cannot read the WebGL
+ * canvas directly: the pixels only exist in the browser. So the server sends a
+ * capture job to one tab, which renders the scene from each requested view and
+ * POSTs the resulting PNGs back.
  *
  * Flow:
- *   python  ws.screenshot(...)  -> POST /api/script/screenshot/request
- *   browser GET  /api/script/screenshot/pending   (poll)
- *           -> render each view, canvas.toDataURL()
+ *   python  kv.screenshot(...)  -> POST /api/script/screenshot/request
+ *   server  -> {action: "screenshot", ...job} over the script WebSocket of one tab
+ *   browser -> render each view, canvas.toDataURL()
  *           -> POST /api/script/screenshot/result
  *   python  long-polls /api/script/screenshot/collect until the images land
  */
 
-const POLL_MS = 400;
-const POLL_DOWN_MS = 3000;
+import { api } from './urls.js';
 
 /**
  * Swap the scene background for a capture.  `bg` is "viewer" (keep it),
@@ -134,71 +133,64 @@ function renderView(THREE, renderer, scene, camera, bounds, view, width, height)
 }
 
 export function startScreenshotBridge(THREE) {
-  async function poll() {
-    if (window.__kayvizOffline) return;          // server gone for good (ws.js)
-    let job = null, down = false;
-    try {
-      const r = await fetch('/api/script/screenshot/pending');
-      if (r.ok) job = await r.json();
-    } catch (e) { down = true; /* server down — poll slowly until it is back */ }
+  // The server pushes a capture job over the script WebSocket to one tab — the most
+  // recently connected one ({action: "screenshot", ...job}, ws.js) — instead of
+  // every tab polling for jobs.
+  window.__screenshotJob = (job) => runJob(THREE, job);
+}
 
-    if (job && job.id) {
-      const renderer = window.__renderer;
-      const scene    = window.__scene;
-      const camera   = window.__camera;
-      const grid     = window.__grid;
-      let images = [], error = null;
-      let restoreBg = () => {};
-      const gridWasVisible = grid?.visible;     // hidden in studio mode: keep it so
+async function runJob(THREE, job) {
+  const renderer = window.__renderer;
+  const scene    = window.__scene;
+  const camera   = window.__camera;
+  const grid     = window.__grid;
+  let images = [], error = null;
+  let restoreBg = () => {};
+  const gridWasVisible = grid?.visible;     // hidden in studio mode: keep it so
 
-      try {
-        if (grid && job.hide_grid) grid.visible = false;
-        restoreBg = applyBackground(THREE, renderer, scene, job.background);
-        const bounds = sceneBounds(THREE, scene, grid) ||
-                       { center: new THREE.Vector3(), radius: 1 };
-        for (const v of job.views) {
-          images.push(renderView(
-            THREE, renderer, scene, camera, bounds, v,
-            job.width || 900, job.height || 700,
-          ));
-        }
-      } catch (e) {
-        error = String(e && e.message ? e.message : e);
-      } finally {
-        if (grid) grid.visible = gridWasVisible;
-        restoreBg();
-        window.__invalidate?.();         // capture resized the canvas, which clears it
-      }
-
-      // Report the live camera alongside the images so ws.get_camera() can
-      // show the user the numbers behind their current view.
-      try {
-        const cam = window.__camera, ctl = window.__controls;
-        if (cam) {
-          const t = (ctl && ctl.target) ? ctl.target : { x: 0, y: 0, z: 0 };
-          window.__lastCamera = {
-            position: [cam.position.x, cam.position.y, cam.position.z],
-            target:   [t.x, t.y, t.z],
-            up:       [cam.up.x, cam.up.y, cam.up.z],
-            fov:      cam.fov,
-            distance: Math.hypot(cam.position.x - t.x,
-                                 cam.position.y - t.y,
-                                 cam.position.z - t.z),
-          };
-        }
-      } catch (e) { /* non-fatal */ }
-
-      try {
-        await fetch('/api/script/screenshot/result', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ id: job.id, images, error,
-                                 camera: window.__lastCamera || null }),
-        });
-      } catch (e) { /* drop it; python will time out */ }
+  try {
+    if (grid && job.hide_grid) grid.visible = false;
+    restoreBg = applyBackground(THREE, renderer, scene, job.background);
+    const bounds = sceneBounds(THREE, scene, grid) ||
+                   { center: new THREE.Vector3(), radius: 1 };
+    for (const v of job.views) {
+      images.push(renderView(
+        THREE, renderer, scene, camera, bounds, v,
+        job.width || 900, job.height || 700,
+      ));
     }
-
-    setTimeout(poll, down ? POLL_DOWN_MS : POLL_MS);
+  } catch (e) {
+    error = String(e && e.message ? e.message : e);
+  } finally {
+    if (grid) grid.visible = gridWasVisible;
+    restoreBg();
+    window.__invalidate?.();         // capture resized the canvas, which clears it
   }
-  poll();
+
+  // Report the live camera alongside the images so kv.get_camera() can
+  // show the user the numbers behind their current view.
+  try {
+    const cam = window.__camera, ctl = window.__controls;
+    if (cam) {
+      const t = (ctl && ctl.target) ? ctl.target : { x: 0, y: 0, z: 0 };
+      window.__lastCamera = {
+        position: [cam.position.x, cam.position.y, cam.position.z],
+        target:   [t.x, t.y, t.z],
+        up:       [cam.up.x, cam.up.y, cam.up.z],
+        fov:      cam.fov,
+        distance: Math.hypot(cam.position.x - t.x,
+                             cam.position.y - t.y,
+                             cam.position.z - t.z),
+      };
+    }
+  } catch (e) { /* non-fatal */ }
+
+  try {
+    await fetch(api('script/screenshot/result'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: job.id, images, error,
+                             camera: window.__lastCamera || null }),
+    });
+  } catch (e) { /* dropped; Python times out */ }
 }

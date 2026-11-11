@@ -78,7 +78,7 @@ App kinds: `ScriptApp` (always registered; buffer + broadcast of pushed objects,
 - `ws.js` — `WSClient` with reconnect/backoff
 - `gui/panel.js` (base), `gui/auto_panel.js`, `gui/auto_callback_panel.js`, `gui/scene_panel.js` (object list, colour/opacity/shader, "show edges"), `gui/energy_panel.js`, `lib/MaterialLibrary.js`, `lib/Studio.js` (studio render mode: GTAO + soft floor shadow + backdrop, toggled by the bulb button; see docs/kayviz/FRONTEND_API.md); `main.js` also has the save-picture camera button (`window.__savePicture`)
 
-Three.js and lil-gui come from CDN via the import map in `index.html`.
+Three.js 0.165 (+ the add-ons used) and lil-gui are bundled in `static/vendor/` (`npm run vendor` in `kayviz/` refreshes them from `package.json`); the import map in `index.html` points there with `./static/...` addresses (an import-map address must start with `/`, `./` or `../`). All server URLs are page-relative (`static/urls.js`: `api()`, `wsUrl()`), so the viewer works behind path prefixes and HTTPS. Screenshot jobs travel over the script WebSocket to the newest tab (`{action: "screenshot"}`); re-registering an app closes its tabs with code 4000, which reloads them. `npm test` in `kayviz/` runs the frontend tests (`tests/js/`, node + three).
 
 ### Scripting API
 

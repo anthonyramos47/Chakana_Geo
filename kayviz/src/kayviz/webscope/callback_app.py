@@ -127,6 +127,7 @@ class CallbackApp(BroadcastMixin, GUIApp):
 
     async def handle_websocket(self, ws: WebSocket):
         await ws.accept()
+        self._open.add(ws)
         await self._connect_client(ws)        # the current scene is its first message
 
         # Widget events are queued per connection and run one after another by
@@ -156,6 +157,7 @@ class CallbackApp(BroadcastMixin, GUIApp):
             traceback.print_exc()
         finally:
             worker.cancel()
+            self._open.discard(ws)
             self._remove_client(ws)
 
     def _enqueue(self, queue: list[dict], data: dict) -> None:

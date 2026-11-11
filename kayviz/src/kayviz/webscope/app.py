@@ -54,6 +54,7 @@ class GUIApp:
         self._actions: dict[str, Callable] = {}
         self._handler_lock = None    # (loop, asyncio.Lock), see _lock()
         self._streaming: set[str] = set()   # streaming actions running now
+        self._open: set = set()             # open sockets (to reload them on replacement)
         self.register_actions()
 
     # ── Public API ────────────────────────────────────────────────────────────
@@ -101,6 +102,7 @@ class GUIApp:
     async def handle_websocket(self, ws: WebSocket):
         """Main WebSocket handler — called by the framework router."""
         await ws.accept()
+        self._open.add(ws)
         tasks: set[asyncio.Task] = set()     # running streaming handlers
         try:
             while True:
@@ -140,6 +142,7 @@ class GUIApp:
             print(f"[ws:{self.name}] unhandled exception: {exc}")
             traceback.print_exc()
         finally:
+            self._open.discard(ws)
             for t in tasks:
                 t.cancel()
 

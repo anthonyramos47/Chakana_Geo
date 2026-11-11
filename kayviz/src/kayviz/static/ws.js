@@ -12,13 +12,13 @@ const GIVE_UP_MS   = 15 * 60 * 1000;
 // The server id this page was loaded from; a reconnect to a different server
 // (a re-run of the script) reloads the page so panel and scene come from it.
 let _instance = null;
-let _instanceReady = fetch('/api/_info').then(r => r.json())
+let _instanceReady = fetch(api('_info')).then(r => r.json())
   .then(info => { _instance = info.instance ?? null; }).catch(() => {});
 
 async function checkServerInstance() {
   await _instanceReady;
   try {
-    const info = await (await fetch('/api/_info')).json();
+    const info = await (await fetch(api('_info'))).json();
     if (!_instance || !info.instance || info.instance === _instance) return;
     // A new server: reload. If it does not serve this page's app (another script
     // runs on the port now), switch to the app it serves, so the tab follows the
@@ -33,6 +33,8 @@ async function checkServerInstance() {
     }
   } catch (_) { /* server went away again; onclose retries */ }
 }
+
+import { api } from './urls.js';
 
 // ── Binary frames (kayviz/webscope/wire.py) ───────────────────────────────────
 // uint32 header length | JSON header | pad to 8 | arrays. In the header every array
@@ -63,7 +65,7 @@ export function decodeFrame(buf) {
 
 export class WSClient {
   /**
-   * @param {string} url     WebSocket URL, e.g. 'ws://localhost:8000/api/lmesh/ws'
+   * @param {string} url     WebSocket URL, e.g. wsUrl('lmesh/ws') (urls.js)
    * @param {Viewer} viewer  viewer.js Viewer instance
    * @param {HTMLElement} statusEl  optional status bar element
    */
@@ -115,6 +117,8 @@ export class WSClient {
           this.viewer.remove(data.name);
         } else if (data.action === 'view') {
           window.__applyView?.(data);
+        } else if (data.action === 'screenshot') {
+          window.__screenshotJob?.(data);
         } else if (data.objects?.length) {
           this.viewer.applyMessage(data);
         }
@@ -143,6 +147,9 @@ export class WSClient {
     this.ws.onclose = e => {
       // code 1000 = normal closure (page unload etc.) — don't reconnect
       if (e.code === 1000) return;
+      // 4000: the app was registered again (a notebook cell re-run): reload to get
+      // its new panel and scene
+      if (e.code === 4000) { location.reload(); return; }
       this._downSince ??= Date.now();
       // Retry quickly (a script re-run restarts the server on the same port and
       // reuses this tab), but give up once the server has been gone for a while.

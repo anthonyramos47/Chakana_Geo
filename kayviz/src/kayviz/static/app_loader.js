@@ -13,6 +13,7 @@
  */
 
 import { Viewer }      from './viewer.js';
+import { api, wsUrl, staticUrl } from './urls.js';
 import { WSClient }    from './ws.js';
 import { ScenePanel }  from './gui/scene_panel.js';
 import { EnergyPanel } from './gui/energy_panel.js';
@@ -24,7 +25,7 @@ const meshName = params.get('mesh') ?? '';
 let appName = params.get('app');
 if (!appName) {
   try {
-    appName = (await (await fetch('/api/_info')).json()).default ?? 'script';
+    appName = (await (await fetch(api('_info'))).json()).default ?? 'script';
   } catch {
     appName = 'script';
   }
@@ -37,7 +38,7 @@ window.__viewer = viewer;
 // ── 1. Fetch app schema ────────────────────────────────────────────────────────
 let schema;
 try {
-  const res = await fetch(`/api/${appName}/schema`);
+  const res = await fetch(api(`${appName}/schema`));
   if (!res.ok) throw new Error(`Schema fetch failed: HTTP ${res.status}`);
   schema = await res.json();
 } catch (err) {
@@ -48,7 +49,7 @@ try {
 
 // ── 2. WebSocket client ────────────────────────────────────────────────────────
 const ws = new WSClient(
-  `ws://${location.host}/api/${appName}/ws`,
+  wsUrl(`${appName}/ws`),
   viewer,
   statusEl
 );
@@ -56,14 +57,14 @@ window.__ws = ws;
 
 // Shared scene channel (kayviz.register_* from the Python process).
 if (appName !== 'script') {
-  window.__scriptWs = new WSClient(`ws://${location.host}/api/script/ws`, viewer);
+  window.__scriptWs = new WSClient(wsUrl('script/ws'), viewer);
 }
 
 // ── 3. Panel — the app's custom panel.js, else AutoCallbackPanel ─────────────
 let panel = null;
 try {
   if (!schema.panel) throw new Error('no custom panel');
-  const mod        = await import(`/api/${appName}/panel.js`);
+  const mod        = await import(api(`${appName}/panel.js`));
   const PanelClass = mod.default ?? Object.values(mod)[0];
   if (PanelClass) {
     panel = new PanelClass(ws, schema.state ?? []);
@@ -76,7 +77,7 @@ try {
   if (widgetSchema.length > 0) {
     try {
       const { default: AutoCallbackPanel } =
-        await import('/static/gui/auto_callback_panel.js');
+        await import(staticUrl('gui/auto_callback_panel.js'));
       panel = new AutoCallbackPanel(ws, widgetSchema, appName);
       window.__panel = panel;
     } catch (autoErr) {
@@ -101,7 +102,7 @@ try {
   if (meshName) q.set('mesh_name', meshName);
   if (schema.streams_scene) q.set('objects', 'false');
   const query = q.toString() ? `?${q}` : '';
-  const res = await fetch(`/api/${appName}/load${query}`, { method: 'POST' });
+  const res = await fetch(api(`${appName}/load${query}`), { method: 'POST' });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   const data = await res.json();
 

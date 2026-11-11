@@ -802,6 +802,7 @@ def _on_server_stopped() -> None:
     if script is not None:                      # start the next one empty
         script._buffer.clear()
         script._shot_queue.clear()
+        script._shot_pending.clear()
         script._shot_done.clear()
 
 

@@ -21,7 +21,7 @@ import kayviz as kv
 V = np.random.rand(100, 3)
 
 kv.init()                                   # viewer server in a background thread
-kv.register_point_cloud("Points", V, radius=0.01)
+kv.register_point_cloud("Points", V)
 kv.show()                                   # opens the tab; returns when it is closed
 ```
 
@@ -33,17 +33,24 @@ immediately and the viewer stays alive with the kernel.
 
 | Function | Polyscope equivalent |
 |---|---|
-| `register_surface_mesh(name, V, F, color, opacity, show_edges)` | `ps.register_surface_mesh` |
+| `register_surface_mesh(name, V, F, color, opacity, show_edges, shading, material)` | `ps.register_surface_mesh` |
 | `register_curve_network(name, V, E, color, radius)` | `ps.register_curve_network` |
 | `register_point_cloud(name, P, color, radius)` | `ps.register_point_cloud` |
-| `register_vector_field(name, origins, vectors, length)` | — |
-| `add_scalar_quantity(target, name, values, defined_on)` | `structure.add_scalar_quantity` |
-| `add_vector_quantity(target, name, vectors, defined_on)` | `structure.add_vector_quantity` |
+| `register_vector_field(name, origins, vectors, length, vectortype)` | — |
+| `add_scalar_quantity(target, name, values, defined_on, cmap, vminmax)` | `structure.add_scalar_quantity` |
+| `add_vector_quantity(target, name, vectors, defined_on, vectortype)` | `structure.add_vector_quantity` |
 | `set_enabled(name, bool)`, `remove(name)`, `clear()` | `set_enabled`, `remove_all_structures` |
 | `screenshot(path)`, `screenshot_views()`, `save_grid()` | `ps.screenshot` |
+| `look_at(position, target)`, `reset_camera()`, `set_up_dir("z" \| "y")` | `ps.look_at`, `ps.reset_camera_to_home_view`, `ps.set_up_dir` |
 
-Faces may be ragged polygons; they are fan-triangulated for rendering while
-the polygon edges are kept for the "show edges" overlay.
+Faces may be ragged polygons (or a 2D array padded with -1); they are
+fan-triangulated for rendering while the polygon edges are kept for the "show
+edges" overlay. Wrong input (shapes, indices, lengths, unknown targets) raises
+`ValueError` naming the object. Sizes left out (point radius, tube radius, arrow
+length) are relative to the object, so any unit works.
+
+In the viewer: **F** frames the scene, **R** resets the view, z is up by default.
+The viewer only answers this machine and its own page (see API.md, "Access").
 
 ## A GUI in the same script
 

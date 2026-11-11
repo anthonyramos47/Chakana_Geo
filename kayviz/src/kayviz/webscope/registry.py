@@ -35,13 +35,48 @@ _mounted: list[FastAPI] = []          # FastAPI instances that mount_all() ran o
 _routed: dict[int, set[str]] = {}     # id(FastAPI) → app names already routed
 
 
+RELOAD_CODE = 4000      # WebSocket close code: the tab reloads (static/ws.js)
+
+
 def register_app(app: GUIApp) -> None:
-    """Register a GUIApp instance (before or after mount_all())."""
+    """Register a GUIApp instance (before or after mount_all()). Replacing an app
+    (a notebook cell run again) tells the tabs of the old one to reload."""
     if not app.name:
         raise ValueError(f"{app.__class__.__name__}.name must be set")
+    old = _apps.get(app.name)
     _apps[app.name] = app
+    if old is not None and old is not app:
+        _reload_tabs(old)
     for fastapi_app in _mounted:
         _include(fastapi_app, app.name)
+
+
+def _reload_tabs(old: GUIApp) -> None:
+    """Close the old instance's sockets with RELOAD_CODE: its tabs reload and get the
+    new panel and scene (they would otherwise keep the old gui() and schema)."""
+    from . import script
+    sockets = list(getattr(old, "_open", ()))
+    if not sockets or script._loop is None:
+        return
+
+    async def close_all():
+        for ws in sockets:
+            try:
+                await ws.close(code=RELOAD_CODE)
+            except Exception:
+                pass
+    try:
+        script._run_on_loop(close_all())
+    except Exception:
+        pass
+
+
+def unmount(fastapi_app: FastAPI) -> None:
+    """Forget a FastAPI instance whose server stopped (else apps registered later
+    would still be routed onto it)."""
+    if fastapi_app in _mounted:
+        _mounted.remove(fastapi_app)
+    _routed.pop(id(fastapi_app), None)
 
 
 def get_app(name: str) -> GUIApp | None:

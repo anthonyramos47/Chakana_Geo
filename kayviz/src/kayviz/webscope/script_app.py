@@ -57,7 +57,8 @@ class ScriptApp(BroadcastMixin, GUIApp):
         self._init_broadcast()
         # Screenshot handshake state: jobs waiting to be claimed by a browser,
         # and finished results waiting to be collected by Python.
-        self._shot_queue: list[dict] = []
+        self._shot_queue: list[dict] = []           # unused (old pages poll /pending)
+        self._shot_pending: set[str] = set()        # sent to a tab, not collected yet
         self._shot_done: dict[str, dict] = {}
 
     # ── GUIApp overrides ──────────────────────────────────────────────────────
@@ -141,24 +142,29 @@ class ScriptApp(BroadcastMixin, GUIApp):
             job = {
                 "id":        uuid.uuid4().hex,
                 "views":     payload.get("views", []),
-                "width":     payload.get("width", 900),
-                "height":    payload.get("height", 700),
+                "width":     w,
+                "height":    h,
                 "hide_grid": payload.get("hide_grid", True),
                 "background": payload.get("background", "white"),
             }
-            app._shot_queue.append(job)
+            # One tab renders it: the most recently connected one (the tab the user
+            # just opened or reloaded), through its own queue.
+            tab = next(reversed(app._queues), None)
+            if tab is None:
+                return {"ok": False, "error": "no browser connected"}
+            app._shot_pending.add(job["id"])
+            await app._reply(tab, {"action": "screenshot", **job})
             return {"ok": True, "id": job["id"]}
 
         @router.get("/screenshot/pending")
         async def screenshot_pending():
-            if app._shot_queue:
-                return app._shot_queue.pop(0)
-            return {}
+            return {}           # jobs now travel over the WebSocket
 
         @router.post("/screenshot/result")
         async def screenshot_result(payload: dict):
             jid = payload.get("id", "")
-            if jid:
+            if jid in app._shot_pending:        # late results of a timed-out job: dropped
+                app._shot_pending.discard(jid)
                 app._shot_done[jid] = {
                     "images": payload.get("images", []),
                     "error":  payload.get("error"),
@@ -173,4 +179,5 @@ class ScriptApp(BroadcastMixin, GUIApp):
                 if id in app._shot_done:
                     return app._shot_done.pop(id)
                 await asyncio.sleep(0.1)
+            app._shot_pending.discard(id)       # a result arriving now is dropped
             return {"images": [], "error": "timeout waiting for browser"}

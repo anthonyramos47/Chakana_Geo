@@ -4,9 +4,11 @@
   "description": "Dev-only: node tests of the kayviz frontend (static/) against the three.js version the import map loads. Run: npm install && npm test",
   "type": "module",
   "scripts": {
-    "test": "node --test tests/js/*.test.mjs"
+    "test": "node --test tests/js/*.test.mjs",
+    "vendor": "node tools/vendor.mjs"
   },
   "devDependencies": {
+    "lil-gui": "0.19.2",
     "three": "0.165.0"
   }
 }

@@ -28,7 +28,7 @@ Building blocks:
     kv.server       — create_app() for running kayviz under your own uvicorn
 """
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"
 
 from .webscope.script import (
     init,

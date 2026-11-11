@@ -325,6 +325,12 @@ def test_free_port_survives_time_wait_but_skips_live_server():
     client.close()
     live.close()
     assert find_free_port(port) == port
+    wild = socket.socket()                       # a server on all interfaces (macOS:
+    wild.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)   # bind test misses it)
+    wild.bind(("0.0.0.0", port))
+    wild.listen()
+    assert find_free_port(port) == port + 1
+    wild.close()
 
 
 def test_info_reports_a_server_instance():
@@ -700,3 +706,56 @@ def test_camera_and_up_axis_reach_the_tabs():
     assert out["look"] == {"position": [3.0, 4.0, 5.0], "target": [0.0, 0.0, 1.0]}
     assert out["fit"] is True and out["up_msg"] == "y" and out["up_after"] == "y"
     assert "axis must be" in out["bad"]
+
+
+def test_screenshot_goes_to_the_newest_tab_only():
+    out = _run('''
+        import base64
+        kv.init()
+        base = kv.url()
+        png = "data:image/png;base64," + base64.b64encode(b"\\x89PNG-fake").decode()
+        url = base.replace("http", "ws") + "/api/script/ws"
+        with connect(url) as old, connect(url) as new:
+            time.sleep(0.2)
+            def answer():
+                job = recv_until(new, lambda m: m.get("action") == "screenshot")
+                requests.post(base + "/api/script/screenshot/result",
+                              json={"id": job["id"], "images": [png], "error": None})
+            threading.Thread(target=answer, daemon=True).start()
+            shots = kv.screenshot_views(views=[{"live": True}], width=40, height=30, timeout=5)
+            out["bytes"] = shots[0].decode("latin-1")
+            try:
+                recv_until(old, lambda m: m.get("action") == "screenshot", timeout=0.5)
+                out["old_got_job"] = True
+            except TimeoutError:
+                out["old_got_job"] = False
+            # nobody answers: the job times out, and its late result is dropped
+            try:
+                kv.screenshot_views(views=[{"live": True}], width=40, height=30, timeout=1)
+            except RuntimeError as e:
+                out["timeout"] = str(e)
+            job = recv_until(new, lambda m: m.get("action") == "screenshot")
+            requests.post(base + "/api/script/screenshot/result",
+                          json={"id": job["id"], "images": [png], "error": None})
+            out["kept"] = len(kv.script._registry.get_app("script")._shot_done)
+    ''')
+    assert out["bytes"] == "\x89PNG-fake"
+    assert out["old_got_job"] is False
+    assert "timeout" in out["timeout"]
+    assert out["kept"] == 0
+
+
+def test_registering_an_app_again_reloads_its_tabs():
+    out = _run('''
+        kv.set_user_callback(lambda: kv.imgui.button("A"), app_name="nb")
+        kv.init()
+        ws = connect(kv.url().replace("http", "ws") + "/api/nb/ws")
+        time.sleep(0.2)
+        kv.set_user_callback(lambda: kv.imgui.button("B"), app_name="nb")   # cell re-run
+        try:
+            while True:
+                ws.recv(timeout=3)
+        except Exception as e:
+            out["code"] = getattr(e, "rcvd", None) and e.rcvd.code
+    ''')
+    assert out["code"] == 4000

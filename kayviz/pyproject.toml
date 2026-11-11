@@ -4,12 +4,19 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "kayviz"
-version = "0.2.0"
+dynamic = ["version"]              # kayviz.__version__
 description = "Polyscope-style 3D viewer in the browser: register geometry and build GUIs from Python."
+readme = "README.md"
 authors = [{ name = "Anthony Ramos-Cisneros" }]
 license = "GPL-3.0-or-later"
 license-files = ["LICENSE"]
 requires-python = ">=3.10"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Operating System :: OS Independent",
+    "Topic :: Scientific/Engineering :: Mathematics",
+    "Topic :: Scientific/Engineering :: Visualization",
+]
 dependencies = [
     "numpy",
     "fastapi",
@@ -23,6 +30,9 @@ screenshots = ["pillow"]      # save_grid contact sheets
 servers = ["psutil"]          # kill_servers(force=True) and process names
 test = ["pytest", "httpx", "websockets"]
 
+[project.urls]
+Repository = "https://github.com/anthonyramos47/Chakana_Geo"
+
 [project.scripts]
 kayviz = "kayviz.__main__:main"
 
@@ -34,3 +44,6 @@ kayviz = ["static/*", "static/**/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.setuptools.dynamic]
+version = { attr = "kayviz.__version__" }

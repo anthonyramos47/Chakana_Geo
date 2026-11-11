@@ -83,6 +83,8 @@ def create_app(apps=(), shared: bool = False, default_app: str | None = None,
         yield
         _script._bind_loop(None)
         _script._on_server_stopped()
+        from .webscope.registry import unmount
+        unmount(_app)
 
     fastapi_app = FastAPI(title="kayviz", lifespan=lifespan)
     fastapi_app.add_middleware(_NoCacheMiddleware)
@@ -125,19 +127,52 @@ def create_app(apps=(), shared: bool = False, default_app: str | None = None,
     return fastapi_app
 
 
+def _listening(host: str, port: int) -> bool:
+    """Something accepts connections there (also a server bound to 0.0.0.0, which a
+    bind test with SO_REUSEADDR does not see on macOS)."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.settimeout(0.05)
+        return s.connect_ex((host, port)) == 0
+
+
+def _bind(host: str, port: int) -> socket.socket:
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    # Like uvicorn: connections of a server that just stopped linger in TIME_WAIT;
+    # without this the port looks taken and a re-run moves to the next one, away
+    # from the tabs waiting to reconnect.
+    s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    try:
+        s.bind((host, port))
+    except OSError:
+        s.close()
+        raise
+    return s
+
+
 def find_free_port(start: int = 8000, host: str = "127.0.0.1", tries: int = 100) -> int:
-    """Return the first port >= start that can be bound on *host*."""
+    """Return the first port >= start that can be bound on *host* (and where no
+    server is listening)."""
     for port in range(start, start + tries):
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            # Like uvicorn: connections of a server that just stopped linger in
-            # TIME_WAIT; without this the port looks taken and a re-run moves to
-            # the next one, away from the tabs waiting to reconnect.
-            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            try:
-                s.bind((host, port))
-                return port
-            except OSError:
-                continue
+        if _listening(host, port):
+            continue
+        try:
+            _bind(host, port).close()
+            return port
+        except OSError:
+            continue
+    raise RuntimeError(f"no free port in {start}..{start + tries - 1}")
+
+
+def bind_free_port(start: int, host: str, tries: int = 100) -> socket.socket:
+    """Bind the first free port >= start and keep the socket: no other process can
+    take it between the check and the server start."""
+    for port in range(start, start + tries):
+        if _listening(host, port):
+            continue
+        try:
+            return _bind(host, port)
+        except OSError:
+            continue
     raise RuntimeError(f"no free port in {start}..{start + tries - 1}")
 
 
@@ -163,8 +198,13 @@ class BackgroundServer:
                              f"(host {host!r}); use `python -m kayviz --host {host} "
                              f"--allow-network` to serve a network")
         self.host = host
-        self.port = port or find_free_port(
-            int(os.environ.get("KAYVIZ_PORT", 8000)), host)
+        if port:
+            if _listening(host, port):
+                raise RuntimeError(f"kayviz: port {port} is taken")
+            self._sock = _bind(host, port)
+        else:
+            self._sock = bind_free_port(int(os.environ.get("KAYVIZ_PORT", 8000)), host)
+        self.port = self._sock.getsockname()[1]
         self.app = create_app()
         config = uvicorn.Config(self.app, host=self.host, port=self.port,
                                 log_level="warning", ws=ws_impl(),
@@ -173,6 +213,7 @@ class BackgroundServer:
         self._server = uvicorn.Server(config)
         self.app.state.shutdown = lambda: setattr(self._server, "should_exit", True)
         self._thread = threading.Thread(target=self._server.run,
+                                        kwargs={"sockets": [self._sock]},
                                         name="kayviz-server", daemon=True)
 
     @property

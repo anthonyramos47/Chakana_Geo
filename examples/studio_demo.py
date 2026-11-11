@@ -49,22 +49,35 @@ def box(c, size):
     return V, np.array(F)
 
 
+def zup(P):
+    """The scene below is written y-up; kayviz shows z up: (x, y, z) -> (x, -z, y)."""
+    P = np.asarray(P, float)
+    return np.stack([P[:, 0], -P[:, 2], P[:, 1]], axis=1)
+
+
+def _z(VF):
+    V, F = VF
+    return zup(V), F
+
+
 def push_all():
     kv.clear()
-    kv.register_surface_mesh("Plate", *box([0, -0.05, 0], [3.0, 0.1, 2.0]), color=(0.9, 0.9, 0.9))
-    kv.register_surface_mesh("Torus", *torus(np.array([-0.6, 0.18, 0.0]), 0.45, 0.18),
+    smooth = dict(shading="smooth")          # sampled smooth surfaces, not polyhedra
+    V, F = box([0, -0.05, 0], [3.0, 0.1, 2.0])
+    kv.register_surface_mesh("Plate", zup(V), F, color=(0.9, 0.9, 0.9))
+    kv.register_surface_mesh("Torus", *_z(torus(np.array([-0.6, 0.18, 0.0]), 0.45, 0.18)), **smooth,
                              color=(0.88, 0.40, 0.23))
-    kv.register_surface_mesh("Sphere big", *sphere(np.array([0.55, 0.35, -0.2]), 0.35),
+    kv.register_surface_mesh("Sphere big", *_z(sphere(np.array([0.55, 0.35, -0.2]), 0.35)), **smooth,
                              color=(0.92, 0.92, 0.92))
-    kv.register_surface_mesh("Sphere small", *sphere(np.array([0.85, 0.15, 0.35]), 0.15),
+    kv.register_surface_mesh("Sphere small", *_z(sphere(np.array([0.85, 0.15, 0.35]), 0.15)), **smooth,
                              color=(0.15, 0.15, 0.17))
-    kv.register_surface_mesh("Sphere on torus", *sphere(np.array([-0.6, 0.48, 0.0]), 0.2),
+    kv.register_surface_mesh("Sphere on torus", *_z(sphere(np.array([-0.6, 0.48, 0.0]), 0.2)), **smooth,
                              color=(0.30, 0.50, 0.85), show_edges=True)
-    kv.register_surface_mesh("Glass shell", *sphere(np.array([0.0, 0.5, 0.75]), 0.4),
+    kv.register_surface_mesh("Glass shell", *_z(sphere(np.array([0.0, 0.5, 0.75]), 0.4)), **smooth,
                              color=(0.55, 0.25, 0.75), material="glass")
     t = np.linspace(0, 2 * np.pi, 200, endpoint=False)
     curve = np.stack([1.2 * np.cos(t), 0.9 + 0.15 * np.sin(3 * t), 0.8 * np.sin(t)], 1)
-    kv.register_curve_network("Curve", curve, [[i, (i + 1) % 200] for i in range(200)],
+    kv.register_curve_network("Curve", zup(curve), [[i, (i + 1) % 200] for i in range(200)],
                               color=(0.11, 0.5, 0.23), radius=0.012)
 
 
