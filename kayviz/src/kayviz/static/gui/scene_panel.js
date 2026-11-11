@@ -47,8 +47,23 @@ export class ScenePanel {
     this._root.insertBefore(this._buildShaderRow(),
                             this._root.querySelector('#scene-panel-body'));
 
-    // Rebuild whenever the viewer's object list changes
-    document.addEventListener('viewer-changed', () => this._rebuild());
+    // Rebuild whenever the viewer's object list changes — but never under the
+    // user's hand: while a pointer is down in the panel or one of its fields has
+    // focus, the rebuild waits (it would detach the slider being dragged).
+    this._openScalars = new Set();      // "parent::key" of scalar rows shown open
+    this._busy = false;
+    this._rebuildDue = false;
+    const later = () => { if (this._rebuildDue && !this._busy) this._rebuild(); };
+    this._root.addEventListener('pointerdown', () => { this._busy = true; });
+    window.addEventListener('pointerup', () => { this._busy = false; later(); });
+    this._root.addEventListener('focusout', () => setTimeout(later, 0));
+    document.addEventListener('viewer-changed', () => {
+      const editing = this._root.contains(document.activeElement) &&
+                      document.activeElement.tagName === 'INPUT' &&
+                      document.activeElement.type !== 'checkbox';
+      if (this._busy || editing) this._rebuildDue = true;
+      else this._rebuild();
+    });
     this._rebuild();
   }
 
@@ -136,7 +151,10 @@ export class ScenePanel {
   }
 
   _rebuild() {
+    this._rebuildDue = false;
     const body = this._root.querySelector('#scene-panel-body');
+    const scroll = this._root.scrollTop;      // keep the user's place in the list
+    queueMicrotask(() => { this._root.scrollTop = scroll; });
     body.innerHTML = '';
 
     if (this._viewer.objects.size === 0) {
@@ -185,7 +203,10 @@ export class ScenePanel {
     eye.checked = entry.visible;
     eye.title   = 'Toggle visibility';
     eye.style.cursor = 'pointer';
-    eye.addEventListener('change', () => this._viewer.setEnabled(name, eye.checked));
+    eye.addEventListener('change', () => {
+      this._viewer.setEnabled(name, eye.checked);
+      this._viewer.remember(name, 'visible', eye.checked);
+    });
 
     // Name label
     const label = document.createElement('span');
@@ -245,6 +266,7 @@ export class ScenePanel {
     // Color picker (all types)
     const colorPicker = this._colorPicker(entry.color, hex => {
       this._viewer.setColor(name, this._hexToRgb(hex));
+      this._viewer.remember(name, 'color', this._hexToRgb(hex));
     });
     ctrlLine.appendChild(colorPicker);
 
@@ -252,7 +274,7 @@ export class ScenePanel {
     if (entry.type === 'surface_mesh') {
       const { wrap } = this._slider(
         'opacity', entry.opacity, 0, 1, 0.01,
-        v => this._viewer.setOpacity(name, v)
+        v => { this._viewer.setOpacity(name, v); this._viewer.remember(name, 'opacity', v); }
       );
       ctrlLine.appendChild(wrap);
     }
@@ -309,6 +331,7 @@ export class ScenePanel {
       edgeChk.style.cursor = 'pointer';
       edgeChk.addEventListener('change', () => {
         this._viewer.toggleEdges(name, edgeChk.checked);
+        this._viewer.remember(name, 'showEdges', edgeChk.checked);
       });
 
       const edgeLabel = document.createElement('span');
@@ -470,15 +493,18 @@ export class ScenePanel {
         radio.checked = false;
         lastChecked = false;
         this._viewer.setActiveScalar(parentName, null);
+        this._viewer.remember(parentName, 'activeScalar', null);
       } else {
         lastChecked = true;
         this._viewer.setActiveScalar(parentName, childKey);
+        this._viewer.remember(parentName, 'activeScalar', childKey);
       }
     });
     radio.addEventListener('change', () => {
       if (radio.checked) {
         lastChecked = true;
         this._viewer.setActiveScalar(parentName, childKey);
+        this._viewer.remember(parentName, 'activeScalar', childKey);
       }
     });
 
@@ -527,13 +553,17 @@ export class ScenePanel {
     const drawHistogram = () =>
       child.drawHistogram(canvas, gradCanvas);
 
+    const openKey = `${parentName}::${childKey}`;     // survives panel rebuilds
     let scalarOpen = false;
-    scalarHeader.addEventListener('click', () => {
-      scalarOpen = !scalarOpen;
+    const showScalar = (open) => {
+      scalarOpen = open;
+      if (open) this._openScalars.add(openKey); else this._openScalars.delete(openKey);
       scalarBody.style.display = scalarOpen ? 'block' : 'none';
       scalarToggle.textContent = scalarOpen ? '▾' : '▸';
       if (scalarOpen) drawHistogram();
-    });
+    };
+    scalarHeader.addEventListener('click', () => showScalar(!scalarOpen));
+    if (this._openScalars.has(openKey)) queueMicrotask(() => showScalar(true));
 
     scalarBody.appendChild(canvas);
     scalarBody.appendChild(gradCanvas);
@@ -543,6 +573,7 @@ export class ScenePanel {
       this._slider('vmin', child.vmin, dataMin - range, dataMax, step, v => {
         child.vmin = v;
         this._viewer.setScalarRange(parentName, childKey, child.vmin, child.vmax);
+        this._viewer.remember(parentName, `range:${childKey}`, [child.vmin, child.vmax]);
         if (scalarOpen) drawHistogram();
       }, fmt);
 
@@ -550,6 +581,7 @@ export class ScenePanel {
       this._slider('vmax', child.vmax, dataMin, dataMax + range, step, v => {
         child.vmax = v;
         this._viewer.setScalarRange(parentName, childKey, child.vmin, child.vmax);
+        this._viewer.remember(parentName, `range:${childKey}`, [child.vmin, child.vmax]);
         if (scalarOpen) drawHistogram();
       }, fmt);
 
@@ -567,6 +599,7 @@ export class ScenePanel {
       vminDisp.textContent = fmt(dataMin);
       vmaxDisp.textContent = fmt(dataMax);
       this._viewer.setScalarRange(parentName, childKey, dataMin, dataMax);
+      this._viewer.forget(parentName, `range:${childKey}`);
       if (scalarOpen) drawHistogram();
     });
 

@@ -129,8 +129,18 @@ with kv.imgui.header("Section"):          # collapsible folder
     kv.imgui.slider_float(...)
 ```
 
-In schema mode every widget returns `(False, current value)`; in live mode only the
-widget that fired returns `changed=True`.
+In schema mode every widget returns `(False, current value)`. In live mode every widget
+the user edited since the previous event returns `changed=True` (two sliders moved in quick
+succession both report), and a button returns `True` only when it was clicked. Dropdown
+values keep the type of the option (`[1, 2, 3]` gives ints). `slider_float` / `slider_int`
+take an optional `step`.
+
+After each callback the panel shows the values your callback left in `state` (a "Reset"
+button moves the sliders back), and widgets created under a condition appear or go away.
+Widget keys and button labels should be unique (a warning lists duplicates).
+
+In GUI apps (`kv.GUIApp`), a streaming (async) action runs once at a time: a second "run"
+while one is running is refused with an error message.
 
 A callback app with a custom panel:
 `kv.register_app(kv.CallbackApp(fn, app_name=..., on_load=...), panel_js="panel.js")`.

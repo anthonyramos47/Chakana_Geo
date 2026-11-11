@@ -45,9 +45,12 @@ class _Context:
 
     def __init__(self):
         self.mode: str = "schema"          # "schema" | "live"
-        self.schema: list[dict] = []       # populated in schema mode
+        self.schema: list[dict] = []       # widget descriptors (both modes)
         self.trigger: str = ""             # widget key / button label (live mode)
+        self.button: bool = False          # the event is a button click
         self.payload: dict = {}            # full state dict from browser (live mode)
+        self.changed: set = set()          # keys the user edited since the last event
+        self.bindings: dict = {}           # key -> (state dict, key): values sent back
         self._section_stack: list[str] = []  # active header labels
 
 
@@ -63,18 +66,26 @@ def _enter_schema_mode() -> _Context:
     ctx.mode = "schema"
     ctx.schema = []
     ctx.trigger = ""
+    ctx.button = False
     ctx.payload = {}
+    ctx.changed = set()
+    ctx.bindings = {}
     ctx._section_stack = []
     return ctx
 
 
-def _enter_live_mode(trigger: str, payload: dict) -> _Context:
-    """Switch context to live mode for a specific trigger event."""
+def _enter_live_mode(trigger: str, payload: dict, changed=None, button: bool = False) -> _Context:
+    """Switch context to live mode for one browser event. *changed* lists the keys
+    the user edited since the previous event (all of them are applied, so a quick
+    edit of a second widget does not lose the first); without it, the trigger."""
     ctx = _ctx()
     ctx.mode = "live"
     ctx.schema = []
     ctx.trigger = trigger
+    ctx.button = button
     ctx.payload = payload
+    ctx.changed = set(changed) if changed is not None else {trigger}
+    ctx.bindings = {}
     ctx._section_stack = []
     return ctx
 
@@ -82,6 +93,21 @@ def _enter_live_mode(trigger: str, payload: dict) -> _Context:
 def _current_section() -> str | None:
     ctx = _ctx()
     return ctx._section_stack[-1] if ctx._section_stack else None
+
+
+def _widget(kind: str, label: str, state: dict, key: str, current, cast, **extra):
+    """Shared logic of the value widgets: (changed, value)."""
+    ctx = _ctx()
+    ctx.schema.append({"kind": kind, "key": key, "label": label, **extra,
+                       "default": current, "section": _current_section()})
+    if ctx.mode == "schema":
+        return False, current
+    ctx.bindings[key] = (state, key)
+    if key in ctx.changed and key in ctx.payload:
+        new_val = cast(ctx.payload[key])
+        state[key] = new_val
+        return True, new_val
+    return False, current
 
 
 # ── Public widget API ─────────────────────────────────────────────────────────
@@ -98,30 +124,10 @@ def slider_float(
     Float slider widget. Returns (changed, new_value).
 
     In schema mode: registers the widget descriptor, returns (False, current).
-    In live mode: returns (True, new_value) when this slider fired.
+    In live mode: returns (True, new_value) when the user changed this slider.
     """
-    ctx = _ctx()
-    current = float(state.get(key, 0.0))
-
-    if ctx.mode == "schema":
-        ctx.schema.append({
-            "kind":    "slider",
-            "key":     key,
-            "label":   label,
-            "min":     min_val,
-            "max":     max_val,
-            "step":    step,
-            "default": current,
-            "section": _current_section(),
-        })
-        return False, current
-
-    # live mode
-    if ctx.trigger == key and key in ctx.payload:
-        new_val = float(ctx.payload[key])
-        state[key] = new_val
-        return True, new_val
-    return False, current
+    return _widget("slider", label, state, key, float(state.get(key, 0.0)), float,
+                   min=min_val, max=max_val, step=step)
 
 
 def slider_int(
@@ -133,99 +139,37 @@ def slider_int(
     step: int = 1,
 ) -> tuple[bool, int]:
     """Integer slider widget. Returns (changed, new_value)."""
-    ctx = _ctx()
-    current = int(state.get(key, 0))
-
-    if ctx.mode == "schema":
-        ctx.schema.append({
-            "kind":    "int_slider",
-            "key":     key,
-            "label":   label,
-            "min":     min_val,
-            "max":     max_val,
-            "step":    step,
-            "default": current,
-            "section": _current_section(),
-        })
-        return False, current
-
-    if ctx.trigger == key and key in ctx.payload:
-        new_val = int(ctx.payload[key])
-        state[key] = new_val
-        return True, new_val
-    return False, current
+    return _widget("int_slider", label, state, key, int(state.get(key, 0)),
+                   lambda v: int(round(float(v))), min=min_val, max=max_val, step=step)
 
 
 def checkbox(label: str, state: dict, key: str) -> tuple[bool, bool]:
     """Checkbox widget. Returns (changed, new_value)."""
-    ctx = _ctx()
-    current = bool(state.get(key, False))
-
-    if ctx.mode == "schema":
-        ctx.schema.append({
-            "kind":    "checkbox",
-            "key":     key,
-            "label":   label,
-            "default": current,
-            "section": _current_section(),
-        })
-        return False, current
-
-    if ctx.trigger == key and key in ctx.payload:
-        new_val = bool(ctx.payload[key])
-        state[key] = new_val
-        return True, new_val
-    return False, current
+    def to_bool(v):
+        return v.strip().lower() in ("1", "true", "yes", "on") if isinstance(v, str) else bool(v)
+    return _widget("checkbox", label, state, key, bool(state.get(key, False)), to_bool)
 
 
 def dropdown(
     label: str,
     state: dict,
     key: str,
-    options: list[str],
-) -> tuple[bool, str]:
-    """Dropdown/select widget. Returns (changed, new_value)."""
-    ctx = _ctx()
-    current = str(state.get(key, options[0] if options else ""))
-
-    if ctx.mode == "schema":
-        ctx.schema.append({
-            "kind":    "dropdown",
-            "key":     key,
-            "label":   label,
-            "options": options,
-            "default": current,
-            "section": _current_section(),
-        })
-        return False, current
-
-    if ctx.trigger == key and key in ctx.payload:
-        new_val = str(ctx.payload[key])
-        state[key] = new_val
-        return True, new_val
-    return False, current
+    options: list,
+) -> tuple[bool, object]:
+    """Dropdown/select widget. Returns (changed, new_value). The value keeps the type
+    of the option (an option 2 comes back as the int 2, not "2")."""
+    def to_option(v):
+        for o in options:
+            if o == v or str(o) == str(v):
+                return o
+        return v
+    current = state.get(key, options[0] if options else "")
+    return _widget("dropdown", label, state, key, current, to_option, options=list(options))
 
 
 def text_input(label: str, state: dict, key: str) -> tuple[bool, str]:
     """Text input widget. Returns (changed, new_value)."""
-    ctx = _ctx()
-    current = str(state.get(key, ""))
-
-    if ctx.mode == "schema":
-        ctx.schema.append({
-            "kind":    "text",
-            "key":     key,
-            "label":   label,
-            "default": current,
-            "section": _current_section(),
-        })
-        return False, current
-
-    if ctx.trigger == key and key in ctx.payload:
-        new_val = str(ctx.payload[key])
-        state[key] = new_val
-        return True, new_val
-    return False, current
+    return _widget("text", label, state, key, str(state.get(key, "")), str)
 
 
 def button(label: str) -> bool:
@@ -235,17 +179,11 @@ def button(label: str) -> bool:
     In schema mode: records a button entry (kind="button", key=label).
     """
     ctx = _ctx()
-
+    ctx.schema.append({"kind": "button", "key": label, "label": label,
+                       "section": _current_section()})
     if ctx.mode == "schema":
-        ctx.schema.append({
-            "kind":  "button",
-            "key":   label,
-            "label": label,
-            "section": _current_section(),
-        })
         return False
-
-    return ctx.trigger == label
+    return ctx.button and ctx.trigger == label
 
 
 @contextmanager

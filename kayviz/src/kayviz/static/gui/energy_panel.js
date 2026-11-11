@@ -34,11 +34,14 @@ export class EnergyPanel {
     this._ctx    = this._canvas.getContext('2d');
 
     document.body.appendChild(this._root);
+    // Shown once energies arrive: apps without an optimisation never see it.
+    this._root.style.display = 'none';
 
     ws.onMessage(data => {
       if (data.action === 'scene_update' &&
           data.energy != null &&
           data.iteration != null) {
+        if (this._root.style.display === 'none' && this._visible) this._root.style.display = '';
         this._push(data.iteration, data.energy);
       }
       if (data.action === 'optimization_complete') {
@@ -58,6 +61,7 @@ export class EnergyPanel {
 
   reset() {
     this._history = [];
+    window.__invalidate?.();
     this._draw();
   }
 

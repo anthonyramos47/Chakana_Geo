@@ -128,8 +128,10 @@ export class WSClient {
 
       if (errors.length) {
         this._setStatus(`Could not show ${errors.length} object(s): ${errors[0]}`, true);
+        window.__toast?.(`Could not show ${errors.length} object(s):\n${errors.join('\n')}`);
       } else if (data.action === 'error') {
         this._setStatus('Server: ' + data.message, true);
+        window.__toast?.(data.message);
         console.error('Server error:', data.message);
       } else if (data.action) {
         this._setStatus(data.action.replace(/_/g, ' '), false);

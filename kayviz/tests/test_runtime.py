@@ -618,3 +618,60 @@ def test_network_serving_needs_an_explicit_flag():
     proc = subprocess.run([sys.executable, "-m", "kayviz", "--host", "0.0.0.0",
                            "--port", "18799"], capture_output=True, text=True, timeout=30)
     assert proc.returncode != 0 and "--allow-network" in proc.stderr
+
+
+def test_widget_state_round_trip():
+    out = _run('''
+        state = {"a": 1.0, "b": 1.0, "mode": 1, "adv": False, "k": 0.5}
+        seen = []
+        def gui():
+            ca, a = kv.imgui.slider_float("A", state, "a", 0, 10)
+            cb, b = kv.imgui.slider_float("B", state, "b", 0, 10)
+            cm, m = kv.imgui.dropdown("Mode", state, "mode", [1, 2, 3])
+            kv.imgui.checkbox("Advanced", state, "adv")
+            if state["adv"]:
+                kv.imgui.slider_float("K", state, "k", 0, 1)
+            if kv.imgui.button("a"):            # same text as slider key "a"
+                seen.append("button a")
+            if kv.imgui.button("Reset"):
+                state["a"] = 0.0
+            if ca or cb or cm:
+                seen.append((a, b, m, type(m).__name__))
+        kv.set_user_callback(gui, app_name="w")
+        kv.init()
+        with connect(kv.url().replace("http", "ws") + "/api/w/ws") as ws:
+            def event(trigger, changed, button=False, **state_):
+                ws.send(json.dumps({"action": "_callback", "trigger": trigger, "button": button,
+                                    "changed": changed, "state": {**state, **state_}}))
+                return recv_until(ws, lambda m: m.get("action") == "gui_state")
+            event("b", ["a", "b"], a=5.0, b=2.0)           # A edited, then B, one message
+            event("mode", ["mode"], mode="2")              # browsers send strings
+            event("a", ["a"], a=6.0)                       # slider "a" is not button "a"
+            out["reset"] = event("Reset", [], button=True)["values"]["a"]
+            g = event("adv", ["adv"], adv=True)
+            out["schema_keys"] = [w["key"] for w in g.get("schema", [])]
+        out["seen"] = seen
+        out["state"] = state
+    ''')
+    assert out["seen"][0] == [5.0, 2.0, 1, "int"]
+    assert out["seen"][1] == [5.0, 2.0, 2, "int"]
+    assert "button a" not in out["seen"]
+    assert out["reset"] == 0.0
+    assert "k" in out["schema_keys"]
+
+
+def test_old_pages_without_the_button_flag_still_click_buttons():
+    out = _run('''
+        hits = []
+        def gui():
+            if kv.imgui.button("Go"):
+                hits.append(1)
+                kv.register_point_cloud("G", np.zeros((1, 3)))
+        kv.set_user_callback(gui, app_name="old")
+        kv.init()
+        with connect(kv.url().replace("http", "ws") + "/api/old/ws") as ws:
+            ws.send(json.dumps({"action": "_callback", "trigger": "Go", "state": {}}))
+            recv_until(ws, lambda m: m.get("action") == "scene_update")
+        out["hits"] = len(hits)
+    ''')
+    assert out["hits"] == 1

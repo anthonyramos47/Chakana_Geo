@@ -31,6 +31,7 @@ export class Viewer {
     this.matLib   = matLib;
     this._objects = new Map();  // name → SceneEntry
     this.errors   = [];         // objects of the last messages that could not be shown
+    this._user    = new Map();  // name -> {prop: {value, sent}}: scene-panel changes
     this._batch   = 0;          // > 0 inside applyMessage: one 'viewer-changed' at the end
     this._emitDue = false;
     // one shader for every surface mesh (scene panel "Shader"); kept across reloads
@@ -171,7 +172,7 @@ export class Viewer {
     e.mesh.dispose?.();   // InstancedMesh: frees its instance buffers
     this.scene.add(newObj);
     e.mesh = newObj;
-    this._emit();
+    window.__invalidate?.();   // no viewer-changed: it would rebuild the panel mid-drag
   }
 
   setVectorLength(name, length) {
@@ -270,7 +271,7 @@ export class Viewer {
     const e = this._objects.get(parentName); if (!e) return;
     const child = e.children.get('edges');   if (!child) return;
     child.setColor(rgb);
-    this._emit();
+    window.__invalidate?.();   // no viewer-changed: it would rebuild the panel mid-drag
   }
 
   setEdgeRadius(parentName, radius) {
@@ -286,7 +287,7 @@ export class Viewer {
     const newChild = new EdgeChild({ mesh, color: [...color], radius });
     newChild.visible = visible;
     e.addChild(newChild);
-    this._emit();
+    window.__invalidate?.();   // no viewer-changed: it would rebuild the panel mid-drag
   }
 
   /** Toggle edge overlay on a surface_mesh. Uses polygon edges pre-computed by the server. */
@@ -394,7 +395,7 @@ export class Viewer {
     const child = e.children.get(childKey);
     if (!child || child.type !== 'vector') return;
     child.setColor(rgb);
-    this._emit();
+    window.__invalidate?.();   // no viewer-changed: it would rebuild the panel mid-drag
   }
 
   /** Rebuild a vector child with a new arrow length. */
@@ -416,7 +417,7 @@ export class Viewer {
     this.scene.add(newMesh);
     child.mesh   = newMesh;
     child.length = length;
-    this._emit();
+    window.__invalidate?.();   // no viewer-changed: it would rebuild the panel mid-drag
   }
 
   /** Rebuild a vector child with a new arrow radius. */
@@ -438,7 +439,7 @@ export class Viewer {
     this.scene.add(newMesh);
     child.mesh   = newMesh;
     child.radius = radius;
-    this._emit();
+    window.__invalidate?.();   // no viewer-changed: it would rebuild the panel mid-drag
   }
 
   // ── Child proxies (called by scene panel) ────────────────────────────────
@@ -493,13 +494,55 @@ export class Viewer {
     }
   }
 
+  /**
+   * A change the user made in the scene panel. It is re-applied when Python
+   * registers the object again (kv.clear() + register on every update), as long as
+   * Python still sends what it sent when the user made the change; when Python
+   * sends something else for that property, Python wins.
+   */
+  remember(name, prop, value) {
+    const e = this._objects.get(name);
+    if (!e) return;
+    const o = this._user.get(name) ?? {};
+    o[prop] = { value, sent: e.opts.sent?.[prop] };
+    this._user.set(name, o);
+  }
+
+  forget(name, prop) { delete this._user.get(name)?.[prop]; }
+
+  _reapplyUser(names) {
+    for (const name of names) {
+      const o = this._user.get(name), e = this._objects.get(name);
+      if (!o || !e) continue;
+      const sent = e.opts.sent ?? {};
+      for (const [prop, { value, sent: was }] of Object.entries(o)) {
+        if (was !== undefined && JSON.stringify(sent[prop]) !== JSON.stringify(was)) {
+          delete o[prop];                    // Python changed it since: Python wins
+          continue;
+        }
+        if (prop === 'visible')          this.setEnabled(name, value);
+        else if (prop === 'color')       this.setColor(name, value);
+        else if (prop === 'opacity')     this.setOpacity(name, value);
+        else if (prop === 'showEdges')   this.toggleEdges(name, value);
+        else if (prop === 'activeScalar') {
+          if (value === null || e.children.get(value)?.type === 'scalar') this.setActiveScalar(name, value);
+        } else if (prop.startsWith('range:')) {
+          const key = prop.slice(6);
+          if (e.children.get(key)?.type === 'scalar') this.setScalarRange(name, key, value[0], value[1]);
+        }
+      }
+    }
+  }
+
   _applyObjects(data) {
     // Objects registered with show=false; hidden after the whole batch so the
     // children that arrive after them (e.g. the edge_child of show_edges) hide too.
     // A quantity with show=true takes its target off that list and shows it.
     const hide = new Set();
+    const touched = new Set();         // objects (re)registered or given quantities
     let shown = false;
     for (const obj of (data.objects ?? [])) {
+      if (obj.name || obj.target) touched.add(obj.target ?? obj.name);
       if (obj.show === false && obj.name && !obj.target) hide.add(obj.name);
       // ws.clear() from inside a callback travels as a marker in the object
       // stream (rather than its own message) so it stays ordered with the
@@ -514,7 +557,8 @@ export class Viewer {
       }
     }
     for (const name of hide) this.setEnabled(name, false);
-    if (hide.size || shown) this._emit();    // refresh the scene panel's checkboxes
+    this._reapplyUser(touched);
+    if (hide.size || shown || touched.size) this._emit();    // refresh the scene panel
   }
 
   /** One object of a message; returns true if it showed its (hidden) target. */
@@ -527,6 +571,8 @@ export class Viewer {
                                  obj.opacity ?? 1.0, obj.material ?? null);
         const en = this._objects.get(obj.name);
         if (en) {
+          en.opts.sent = { visible: obj.show ?? true, color: obj.color, opacity: obj.opacity ?? 1,
+                           showEdges: !!obj.show_edges };
           if (obj.tris_per_face) en.opts.trisPerFace = obj.tris_per_face;
           if (obj.poly_edges) {
             // index pairs into the mesh's own vertices
@@ -593,6 +639,10 @@ export class Viewer {
       case 'set_enabled':
         this.setEnabled(obj.name, obj.enabled);
         break;
+    }
+    if (!obj.target && ['curve_network', 'point_cloud', 'vector_field'].includes(obj.type)) {
+      const en = this._objects.get(obj.name);
+      if (en) en.opts.sent = { visible: obj.show ?? true, color: obj.color };
     }
     return shown;
   }

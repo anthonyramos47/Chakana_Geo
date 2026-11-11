@@ -334,6 +334,31 @@ _saveButton.addEventListener('click', () => {
 });
 document.body.append(_saveButton, _saveMenu);
 
+// ── Toasts: errors the user must see (the status line is easy to miss) ──────
+const _toasts = document.createElement('div');
+Object.assign(_toasts.style, {
+  position: 'fixed', top: '12px', left: '50%', transform: 'translateX(-50%)',
+  zIndex: '3000', display: 'flex', flexDirection: 'column', gap: '6px',
+  maxWidth: 'min(640px, 80vw)', pointerEvents: 'none',
+});
+document.body.appendChild(_toasts);
+window.__toast = (message, kind = 'error') => {
+  const el = document.createElement('div');
+  el.textContent = message;
+  el.setAttribute('role', 'alert');
+  Object.assign(el.style, {
+    background: kind === 'error' ? '#5a1e1e' : '#2a2a2a', color: '#fff',
+    border: `1px solid ${kind === 'error' ? '#a33' : '#555'}`, borderRadius: '6px',
+    padding: '8px 12px', font: '13px sans-serif', whiteSpace: 'pre-wrap',
+    pointerEvents: 'auto', cursor: 'pointer', boxShadow: '0 2px 8px rgba(0,0,0,.4)',
+  });
+  el.title = 'click to dismiss';
+  el.addEventListener('click', () => el.remove());
+  _toasts.appendChild(el);
+  while (_toasts.children.length > 4) _toasts.firstChild.remove();
+  setTimeout(() => el.remove(), 10000);
+};
+
 // ── Render loop (on demand) ───────────────────────────────────────────────────
 // A frame is drawn only when something may have changed: the camera moved (orbit
 // damping included), a server message arrived (ws.js), the viewer or a panel
@@ -361,13 +386,13 @@ animate();
 
 // ── Click-to-inspect ──────────────────────────────────────────────────────────
 
-// Floating debug panel
+// Floating readout, above the gizmo (the bottom-right corner holds the energy plot)
 const _inspectPanel = (() => {
   const el = document.createElement('div');
   Object.assign(el.style, {
     position:    'fixed',
-    bottom:      '20px',
-    right:       '20px',
+    bottom:      '140px',
+    left:        '296px',
     background:  '#1f1f1f',
     color:       '#eee',
     fontFamily:  'monospace',

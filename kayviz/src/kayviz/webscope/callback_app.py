@@ -101,6 +101,12 @@ class CallbackApp(BroadcastMixin, GUIApp):
             traceback.print_exc()
         self._widget_schema = list(ctx.schema)
         self._buttons = {w["key"] for w in self._widget_schema if w["kind"] == "button"}
+        keys = [w["key"] for w in self._widget_schema]
+        dup = sorted({k for k in keys if keys.count(k) > 1})
+        if dup:
+            print(f"[kayviz] {self.name}: several widgets share the key/label "
+                  f"{', '.join(map(repr, dup))}; they will react to each other's events",
+                  flush=True)
 
     # ── GUIApp overrides ──────────────────────────────────────────────────────
 
@@ -160,6 +166,11 @@ class CallbackApp(BroadcastMixin, GUIApp):
         if data.get("action") == "_callback" and trig not in self._buttons:
             for i, q in enumerate(queue):
                 if q.get("action") == "_callback" and q.get("trigger") == trig:
+                    # the newer payload holds every newest value; keep the keys the
+                    # replaced event changed too, or that edit would be lost
+                    if "changed" in data or "changed" in q:
+                        data = {**data, "changed": sorted(
+                            set(q.get("changed", [trig])) | set(data.get("changed", [trig])))}
                     queue[i] = data
                     return
         queue.append(data)
@@ -191,12 +202,16 @@ class CallbackApp(BroadcastMixin, GUIApp):
             # second callback on the same state) and still publish its result.
             run = asyncio.ensure_future(asyncio.to_thread(self._call_user, data))
             try:
-                pushed, error = await asyncio.shield(run)
+                pushed, error, gui = await asyncio.shield(run)
             except asyncio.CancelledError:
-                pushed, error = await run
+                pushed, error, gui = await run
                 if pushed and not error:
                     await self._publish_pushed(pushed)
                 raise
+        if gui is not None:
+            # Widget values after the callback (Python may have changed them) and,
+            # when widgets appeared or went, the new layout: to every tab of the app.
+            await self._broadcast(gui)
         if error:
             await self._reply(ws, {"action": "error", "message": error})
             return
@@ -233,21 +248,37 @@ class CallbackApp(BroadcastMixin, GUIApp):
             }
         """
         pushed: list[dict] = []
+        trigger = data.get("trigger", "")
+        # older pages send no "button" flag: a trigger naming a button is a click
+        button = data.get("button", trigger in self._buttons)
         with _CallbackPushCapture(self, pushed):
-            _imgui._enter_live_mode(data.get("trigger", ""), data.get("state", {}))
+            ctx = _imgui._enter_live_mode(trigger, data.get("state", {}),
+                                          changed=data.get("changed"), button=button)
             try:
                 self._callback_fn()
+                return pushed, None, self._gui_state(ctx)
             except Exception as exc:
                 traceback.print_exc()
-                return [], str(exc)
+                return [], str(exc), None
             finally:
                 _imgui._enter_schema_mode()   # this pool thread may run other code next
-        return pushed, None
+
+    def _gui_state(self, ctx) -> dict:
+        """Current widget values, and the widget list if it changed (a widget shown
+        only under some condition): sent to the panel after each callback."""
+        values = {k: s[key] for k, (s, key) in ctx.bindings.items() if key in s}
+        msg = {"action": "gui_state", "values": values}
+        layout = lambda schema: [{k: v for k, v in w.items() if k != "default"} for w in schema]
+        if layout(ctx.schema) != layout(self._widget_schema):
+            self._widget_schema = list(ctx.schema)        # new tabs get the new layout
+            self._buttons = {w["key"] for w in ctx.schema if w["kind"] == "button"}
+            msg["schema"] = self._widget_schema
+        return msg
 
     def _handle_callback(self, state, data: dict):
         """Run the callback synchronously and return the scene_update (or None).
         Kept for direct callers; the WebSocket path uses _run_callback."""
-        pushed, error = self._call_user(data)
+        pushed, error, _ = self._call_user(data)
         if error:
             return {"action": "error", "message": error}
         if pushed:
