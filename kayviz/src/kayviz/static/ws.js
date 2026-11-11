@@ -19,7 +19,18 @@ async function checkServerInstance() {
   await _instanceReady;
   try {
     const info = await (await fetch('/api/_info')).json();
-    if (_instance && info.instance && info.instance !== _instance) location.reload();
+    if (!_instance || !info.instance || info.instance === _instance) return;
+    // A new server: reload. If it does not serve this page's app (another script
+    // runs on the port now), switch to the app it serves, so the tab follows the
+    // running script instead of failing to load.
+    const app = new URLSearchParams(location.search).get('app');
+    if (app && info.apps && !info.apps.includes(app)) {
+      const url = new URL(location.href);
+      url.searchParams.set('app', info.default);
+      location.replace(url);
+    } else {
+      location.reload();
+    }
   } catch (_) { /* server went away again; onclose retries */ }
 }
 

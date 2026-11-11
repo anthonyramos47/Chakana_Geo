@@ -676,18 +676,28 @@ def _port_owner(port: int):
     return None
 
 
-# A tab whose server stopped retries every <= 2 s (ws.js), so after a restart
-# on the same port it is back within this window.
-_TAB_REUSE_WAIT = 2.5
+# A tab whose server stopped retries every <= 2 s (ws.js): after a restart on the
+# same port it is back within _TAB_RETURN_WAIT. It then reloads itself for the new
+# server (switching to this app if its own is gone), which takes a few seconds more.
+_TAB_RETURN_WAIT = 2.5
+_TAB_RELOAD_WAIT = 8.0
 
 
-def _wait_for_tab(name: str, timeout: float = _TAB_REUSE_WAIT) -> bool:
-    """True if a browser tab of app *name* connects within *timeout* seconds."""
+def _wait_for_tab(name: str) -> bool:
+    """True if an open browser tab comes back and shows app *name*."""
     app = _registry.get_app(name)
+    script = _registry.get_app("script")
     clients = getattr(app, "_clients", None)
-    if clients is None:          # app without client tracking: can't tell
+    if clients is None or script is None:    # app without client tracking
         return False
-    deadline = time.monotonic() + timeout
+    deadline = time.monotonic() + _TAB_RETURN_WAIT
+    while not script._clients:               # every page connects to "script"
+        if clients:
+            return True
+        if time.monotonic() > deadline:
+            return False                     # no tab came back: open one
+        time.sleep(0.1)
+    deadline = time.monotonic() + _TAB_RELOAD_WAIT
     while time.monotonic() < deadline:
         if clients:
             return True
