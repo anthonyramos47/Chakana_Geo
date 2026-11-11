@@ -735,6 +735,10 @@ def _on_server_stopped() -> None:
     _opened.clear()
     with _structures_lock:
         _structures.clear()
+    for name in _registry.app_names():          # tabs belong to the old server
+        app = _registry.get_app(name)
+        if hasattr(app, "_reset_clients"):
+            app._reset_clients()
     script = _registry.get_app("script")
     if script is not None:                      # start the next one empty
         script._buffer.clear()
@@ -811,15 +815,31 @@ def _bind_loop(loop) -> None:
         _mode = None
 
 
+_loop_tasks: set = set()     # pushes scheduled from the loop itself (kept referenced)
+
+
+def _report_task(task) -> None:
+    _loop_tasks.discard(task)
+    if not task.cancelled() and task.exception() is not None:
+        print(f"[kayviz] push failed: {task.exception()!r}", file=sys.stderr, flush=True)
+
+
 def _run_on_loop(coro) -> None:
+    if _loop is None:
+        coro.close()
+        raise RuntimeError("[kayviz] the viewer server is not running")
     try:
         running = asyncio.get_running_loop()
     except RuntimeError:
         running = None
     if running is _loop:
-        # Inside a handler on the server loop — blocking would deadlock.
-        _loop.create_task(coro)
+        # Inside a handler on the server loop — blocking would deadlock. The push
+        # takes the app's order lock, so pushes still go out in the order made.
+        task = _loop.create_task(coro)
+        _loop_tasks.add(task)
+        task.add_done_callback(_report_task)
     else:
+        # Returns once the message is buffered and queued for the tabs.
         asyncio.run_coroutine_threadsafe(coro, _loop).result(30)
 
 

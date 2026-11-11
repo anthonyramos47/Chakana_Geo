@@ -69,15 +69,7 @@ class ScriptApp(BroadcastMixin, GUIApp):
 
     async def handle_websocket(self, ws: WebSocket):
         await ws.accept()
-        self._add_client(ws)
-
-        if self._buffer:
-            try:
-                await send(ws, {"action": "scene_update",
-                                "objects": self._buffer_snapshot()})
-            except Exception:
-                import traceback
-                traceback.print_exc()         # the tab starts empty; say why
+        await self._connect_client(ws)        # the current scene is its first message
 
         try:
             while True:

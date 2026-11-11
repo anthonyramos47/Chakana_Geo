@@ -12,7 +12,7 @@ import argparse
 
 def main(argv=None) -> None:
     import uvicorn
-    from kayviz.server import create_app
+    from kayviz.server import create_app, ws_impl
 
     parser = argparse.ArgumentParser(prog="kayviz", description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -23,7 +23,7 @@ def main(argv=None) -> None:
     print(f"[kayviz] Shared viewer at http://{args.host}:{args.port}/?app=script", flush=True)
     app = create_app(shared=True, default_app="script")
     server = uvicorn.Server(uvicorn.Config(app, host=args.host, port=args.port,
-                                           log_level="warning",
+                                           log_level="warning", ws=ws_impl(),
                                            timeout_graceful_shutdown=2))
     app.state.shutdown = lambda: setattr(server, "should_exit", True)
     server.run()

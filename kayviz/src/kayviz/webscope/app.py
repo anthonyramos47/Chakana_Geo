@@ -21,13 +21,6 @@ from .state_schema import to_json, apply_client_state as _apply_cs
 from .wire import send, Socket, track_scene
 
 
-async def _send_error(ws: WebSocket, exc: Exception) -> None:
-    try:
-        await send(ws, {"action": "error", "message": str(exc)})
-    except Exception:
-        pass
-
-
 class GUIApp:
     """
     Base class for all GUI applications.
@@ -59,7 +52,8 @@ class GUIApp:
             raise TypeError(f"{self.__class__.__name__} must define state_cls")
         self.state = self.state_cls()
         self._actions: dict[str, Callable] = {}
-        self._handler_lock = None    # asyncio.Lock, created on the serving loop
+        self._handler_lock = None    # (loop, asyncio.Lock), see _lock()
+        self._streaming: set[str] = set()   # streaming actions running now
         self.register_actions()
 
     # ── Public API ────────────────────────────────────────────────────────────
@@ -114,19 +108,27 @@ class GUIApp:
                 data   = json.loads(raw)
                 action = data.get("action", "")
 
-                # Built-in: sync state from client (auto-panel debounced push)
+                # Built-in: sync state from client (auto-panel debounced push).
+                # Under the handler lock: another tab must not change the state while
+                # a handler of this app is using it in its thread.
                 if action == "_set_state":
-                    _apply_cs(self.state, data.get("state", {}))
+                    async with self._lock():
+                        _apply_cs(self.state, data.get("state", {}))
                     continue
 
                 fn = self._actions.get(action)
                 if fn is None:
-                    await send(ws, {"action": "error",
-                                    "message": f"Unknown action: '{action}'"})
+                    await self._reply(ws, {"action": "error",
+                                           "message": f"Unknown action: '{action}'"})
                     continue
 
                 if asyncio.iscoroutinefunction(fn):
-                    task = asyncio.create_task(self._run_streaming(fn, data, ws))
+                    if action in self._streaming:
+                        await self._reply(ws, {"action": "error", "message":
+                                               f"'{action}' is already running"})
+                        continue
+                    self._streaming.add(action)        # now: the next message may be a 2nd run
+                    task = asyncio.create_task(self._run_streaming(action, fn, data, ws))
                     tasks.add(task)
                     task.add_done_callback(tasks.discard)
                 else:
@@ -141,27 +143,49 @@ class GUIApp:
             for t in tasks:
                 t.cancel()
 
+    def _lock(self) -> asyncio.Lock:
+        """Handler lock of the loop serving this app (recreated for a new loop: an
+        asyncio.Lock used on one loop fails on another, e.g. after a server restart)."""
+        loop = asyncio.get_running_loop()
+        if self._handler_lock is None or self._handler_lock[0] is not loop:
+            self._handler_lock = (loop, asyncio.Lock())
+        return self._handler_lock[1]
+
+    async def _reply(self, ws: WebSocket, msg: dict) -> None:
+        """Send a message to one tab (BroadcastMixin queues it behind earlier ones)."""
+        await send(ws, msg)
+
     async def _run_sync(self, fn, data: dict, ws: WebSocket) -> None:
         """A sync handler in a worker thread (one at a time per app); reply to ws."""
-        self._handler_lock = self._handler_lock or asyncio.Lock()
         try:
-            async with self._handler_lock:
+            async with self._lock():
                 result = await asyncio.to_thread(fn, self.state, data)
             if result is not None:
                 track_scene(result)
-                await send(ws, result)
+                await self._reply(ws, result)
         except Exception as exc:
             traceback.print_exc()
-            await _send_error(ws, exc)
+            await self._send_error(ws, exc)
 
-    async def _run_streaming(self, fn, data: dict, ws: WebSocket) -> None:
+    async def _run_streaming(self, action: str, fn, data: dict, ws: WebSocket) -> None:
+        """A streaming handler as a task: the connection keeps reading meanwhile (a
+        "stop" action reaches it). One run per action at a time (handle_websocket
+        marks the action running; this clears it)."""
         try:
             await fn(self.state, data, Socket(ws))
         except asyncio.CancelledError:
             raise
         except Exception as exc:
             traceback.print_exc()
-            await _send_error(ws, exc)
+            await self._send_error(ws, exc)
+        finally:
+            self._streaming.discard(action)
+
+    async def _send_error(self, ws: WebSocket, exc: Exception) -> None:
+        try:
+            await self._reply(ws, {"action": "error", "message": str(exc)})
+        except Exception:
+            pass
 
     # ── Helpers for subclasses ────────────────────────────────────────────────
 

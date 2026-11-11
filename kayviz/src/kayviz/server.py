@@ -126,6 +126,17 @@ def find_free_port(start: int = 8000, host: str = "127.0.0.1", tries: int = 100)
     raise RuntimeError(f"no free port in {start}..{start + tries - 1}")
 
 
+def ws_impl() -> str:
+    """uvicorn's sans-I/O websockets protocol when available: the default ("auto")
+    still picks the deprecated websockets.legacy, which logs AssertionErrors when a
+    tab closes during a large send."""
+    try:
+        from uvicorn.config import WS_PROTOCOLS
+        return "websockets-sansio" if "websockets-sansio" in WS_PROTOCOLS else "auto"
+    except ImportError:
+        return "auto"
+
+
 class BackgroundServer:
     """uvicorn running ``create_app()`` in a daemon thread of this process."""
 
@@ -137,7 +148,8 @@ class BackgroundServer:
             int(os.environ.get("KAYVIZ_PORT", 8000)), host)
         self.app = create_app()
         config = uvicorn.Config(self.app, host=self.host, port=self.port,
-                                log_level="warning", ws_max_size=256 * 1024 * 1024,
+                                log_level="warning", ws=ws_impl(),
+                                ws_max_size=256 * 1024 * 1024,
                                 timeout_graceful_shutdown=2)
         self._server = uvicorn.Server(config)
         self.app.state.shutdown = lambda: setattr(self._server, "should_exit", True)

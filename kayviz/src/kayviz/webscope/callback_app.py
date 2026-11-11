@@ -121,14 +121,7 @@ class CallbackApp(BroadcastMixin, GUIApp):
 
     async def handle_websocket(self, ws: WebSocket):
         await ws.accept()
-        self._add_client(ws)
-
-        if self._buffer:
-            try:
-                await send(ws, {"action": "scene_update",
-                                "objects": self._buffer_snapshot()})
-            except Exception:
-                traceback.print_exc()         # the tab starts empty; say why
+        await self._connect_client(ws)        # the current scene is its first message
 
         # Widget events are queued per connection and run one after another by
         # _drain while this loop keeps reading, so a newer value of a slider
@@ -145,8 +138,8 @@ class CallbackApp(BroadcastMixin, GUIApp):
                     # CallbackApp (state lives in the user's dict, not self.state)
                     continue
                 if action not in self._actions:
-                    await send(ws, {"action": "error",
-                                    "message": f"Unknown action: '{action}'"})
+                    await self._reply(ws, {"action": "error",
+                                           "message": f"Unknown action: '{action}'"})
                     continue
                 self._enqueue(queue, data)
                 wake.set()
@@ -192,33 +185,42 @@ class CallbackApp(BroadcastMixin, GUIApp):
     async def _run_callback(self, data: dict, ws: WebSocket) -> None:
         """Run the user callback in a worker thread (one at a time per app: the
         user's state dict is shared), then buffer and broadcast what it pushed."""
-        self._handler_lock = self._handler_lock or asyncio.Lock()
-        async with self._handler_lock:
-            pushed, error = await asyncio.to_thread(self._call_user, data)
-        if error:
+        async with self._lock():
+            # The thread cannot be cancelled: if this tab goes away meanwhile, keep
+            # the lock until the callback returns (else the next event would run a
+            # second callback on the same state) and still publish its result.
+            run = asyncio.ensure_future(asyncio.to_thread(self._call_user, data))
             try:
-                await send(ws, {"action": "error", "message": error})
-            except Exception:
-                pass
+                pushed, error = await asyncio.shield(run)
+            except asyncio.CancelledError:
+                pushed, error = await run
+                if pushed and not error:
+                    await self._publish_pushed(pushed)
+                raise
+        if error:
+            await self._reply(ws, {"action": "error", "message": error})
             return
         if pushed:
             try:
-                data = await encode_async({"action": "scene_update", "objects": pushed})
+                await self._publish_pushed(pushed)
             except Exception as exc:          # nothing buffered: it would break reloads
                 traceback.print_exc()
-                await send(ws, {"action": "error", "message": f"could not send the scene: {exc}"})
-                return
-            # Buffered on the loop (the snapshot for new tabs is read there too),
-            # and sent to every tab of this app, not only the one that clicked.
-            self._buffer_objects(pushed)
-            # clear/remove inside the callback also cleared objects pushed from the
-            # main thread live (one viewer shows both); keep the script buffer in step
-            # so a reload shows the same scene.
-            markers = [o for o in pushed if o.get("action") in ("clear", "remove")]
-            script = _registry.get_app("script")
-            if markers and script is not None and script is not self:
-                script._buffer_objects(markers)
-            await self._broadcast_encoded(data)
+                await self._reply(ws, {"action": "error",
+                                       "message": f"could not send the scene: {exc}"})
+
+    async def _publish_pushed(self, pushed: list[dict]) -> None:
+        """Buffer what a callback pushed and send it to every tab of this app (not
+        only the one that clicked). Encoded first: an object that cannot be encoded
+        raises here and nothing is buffered."""
+        data = await encode_async({"action": "scene_update", "objects": pushed})
+        await self._publish(pushed, data)
+        # clear/remove inside the callback also cleared objects pushed from the main
+        # thread live (one viewer shows both); keep the script buffer in step so a
+        # reload shows the same scene.
+        markers = [o for o in pushed if o.get("action") in ("clear", "remove")]
+        script = _registry.get_app("script")
+        if markers and script is not None and script is not self:
+            script._buffer_objects(markers)
 
     def _call_user(self, data: dict) -> tuple[list[dict], str | None]:
         """
@@ -238,6 +240,8 @@ class CallbackApp(BroadcastMixin, GUIApp):
             except Exception as exc:
                 traceback.print_exc()
                 return [], str(exc)
+            finally:
+                _imgui._enter_schema_mode()   # this pool thread may run other code next
         return pushed, None
 
     def _handle_callback(self, state, data: dict):

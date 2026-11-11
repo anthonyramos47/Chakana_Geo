@@ -132,8 +132,8 @@ class TestIdleEvent:
 
     def test_idle_timeout(self):
         app = make_app()
-        # Manually mark as non-idle (pretend a client is connected)
-        app._idle_event.clear()
+        # Pretend a client is connected
+        app._clients.add(object())
         result = asyncio.run(app.wait_until_idle(timeout=0.1))
         assert result is False  # timed out
 

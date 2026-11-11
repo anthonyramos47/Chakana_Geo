@@ -422,3 +422,157 @@ def test_remove_and_clear_inside_a_callback_survive_reload():
     assert out["script_after_register"] == ["Top"]          # schema capture pushed nothing
     assert "A" not in out["cb_after_make"] and "B" in out["cb_after_make"]
     assert out["after_clear"] == []
+
+
+def test_one_streaming_run_per_action_and_locked_set_state():
+    out = _run('''
+        import asyncio
+        from dataclasses import dataclass
+        running = {"now": 0, "peak": 0}
+        class App(kv.GUIApp):
+            name = "opt2"
+            @kv.gui_state
+            @dataclass
+            class state_cls:
+                n: kv.int_slider(0, 100, 1, "N") = 1
+                go: bool = False
+            def register_actions(self):
+                self.action("run", self._run)
+                self.action("stop", self._stop)
+                self.action("read", self._read)
+            async def _run(self, state, data, ws):
+                running["now"] += 1; running["peak"] = max(running["peak"], running["now"])
+                state.go = True
+                while state.go:
+                    await asyncio.sleep(0.05)
+                running["now"] -= 1
+                await ws.send_json({"action": "done"})
+            def _stop(self, state, data):
+                state.go = False
+                return {"action": "stopped"}
+            def _read(self, state, data):
+                before = state.n
+                time.sleep(0.6)
+                return {"action": "read", "before": before, "after": state.n}
+        kv.register_app(App())
+        kv.init()
+        url = kv.url().replace("http", "ws") + "/api/opt2/ws"
+        with connect(url) as a, connect(url) as b:
+            a.send(json.dumps({"action": "run"}))
+            a.send(json.dumps({"action": "run"}))
+            out["second"] = recv_until(a, lambda m: m.get("action") == "error")["message"]
+            a.send(json.dumps({"action": "stop"}))
+            recv_until(a, lambda m: m.get("action") == "done")
+            a.send(json.dumps({"action": "read"}))
+            time.sleep(0.2)
+            b.send(json.dumps({"action": "_set_state", "state": {"n": 42}}))
+            msg = recv_until(a, lambda m: m.get("action") == "read")
+            out["read"] = [msg["before"], msg["after"]]
+        out["peak"] = running["peak"]
+    ''')
+    assert "already running" in out["second"]
+    assert out["peak"] == 1
+    assert out["read"] == [1, 1]            # the other tab's change waited for the handler
+
+
+def test_restart_in_the_same_process():
+    out = _run('''
+        kv.init()
+        kv.register_point_cloud("P", np.zeros((1, 3)))
+        with connect(kv.url().replace("http", "ws") + "/api/script/ws") as ws:
+            recv_until(ws, lambda m: m.get("action") == "scene_update")
+            # binds the app's asyncio primitives to this server's loop
+            requests.get(kv.url() + "/api/script/wait", params={"timeout": 0.3})
+        kv.kill_servers(ports=range(18700, 18710))
+        kv.register_point_cloud("Q", np.zeros((1, 3)))          # starts a new server
+        base = kv.url()
+        with connect(base.replace("http", "ws") + "/api/script/ws") as ws:
+            msg = recv_until(ws, lambda m: m.get("action") == "scene_update")
+            out["names"] = [o["name"] for o in msg["objects"]]
+            r = requests.get(base + "/api/script/wait", params={"timeout": 0.3})
+            out["wait"] = r.status_code
+    ''')
+    assert out["names"] == ["Q"]
+    assert out["wait"] == 200
+
+
+def test_closing_a_tab_mid_callback_does_not_run_two_callbacks_at_once():
+    out = _run('''
+        live = {"now": 0, "peak": 0}
+        def gui():
+            if kv.imgui.button("Slow"):
+                live["now"] += 1; live["peak"] = max(live["peak"], live["now"])
+                time.sleep(1.0)
+                live["now"] -= 1
+                kv.register_point_cloud("Done", np.zeros((1, 3)))
+        kv.set_user_callback(gui, app_name="cancel")
+        kv.init()
+        url = kv.url().replace("http", "ws") + "/api/cancel/ws"
+        a = connect(url)
+        a.send(json.dumps({"action": "_callback", "trigger": "Slow", "state": {}}))
+        time.sleep(0.2)
+        a.close()                                   # tab goes away mid-callback
+        with connect(url) as b:
+            b.send(json.dumps({"action": "_callback", "trigger": "Slow", "state": {}}))
+            recv_until(b, lambda m: m.get("action") == "scene_update", timeout=6)
+        out["peak"] = live["peak"]
+    ''')
+    assert out["peak"] == 1
+
+
+def test_pushes_from_a_streaming_handler_keep_their_order():
+    out = _run('''
+        from dataclasses import dataclass
+        class App(kv.GUIApp):
+            name = "order"
+            @kv.gui_state
+            @dataclass
+            class state_cls:
+                x: int = 0
+            def register_actions(self):
+                self.action("go", self._go)
+            async def _go(self, state, data, ws):
+                kv.clear()
+                kv.register_surface_mesh("Big", np.random.rand(200000, 3),
+                                         np.random.randint(0, 200000, (200000, 3)))
+                kv.add_scalar_quantity("Big", "s", np.zeros(200000))
+                kv.register_point_cloud("Small", np.zeros((1, 3)))
+                await ws.send_json({"action": "went"})
+        kv.register_app(App())
+        kv.init()
+        base = kv.url().replace("http", "ws")
+        with connect(base + "/api/script/ws", max_size=None) as s, connect(base + "/api/order/ws") as a:
+            a.send(json.dumps({"action": "go"}))
+            seq = []
+            while len(seq) < 4:
+                m = decode(s.recv(timeout=10))
+                if m.get("action") == "clear":
+                    seq.append("clear")
+                for o in m.get("objects", []):
+                    seq.append(o["name"])
+            out["seq"] = seq
+    ''')
+    assert out["seq"] == ["clear", "Big", "s", "Small"]
+
+
+def test_a_tab_that_stops_reading_does_not_stall_pushes():
+    out = _run('''
+        import socket, base64, os
+        kv.init()
+        host, port = kv.url().split("//")[1].split(":")
+        raw = socket.create_connection((host, int(port)))
+        key = base64.b64encode(os.urandom(16)).decode()
+        raw.sendall((f"GET /api/script/ws HTTP/1.1\\r\\nHost: {host}:{port}\\r\\n"
+                     f"Upgrade: websocket\\r\\nConnection: Upgrade\\r\\n"
+                     f"Sec-WebSocket-Key: {key}\\r\\nSec-WebSocket-Version: 13\\r\\n\\r\\n").encode())
+        raw.recv(1024)                              # handshake answer, then never read
+        big = np.random.rand(1_000_000, 3)
+        times = []
+        for i in range(6):
+            t = time.time()
+            kv.register_point_cloud(f"P{i}", big)
+            times.append(time.time() - t)
+        out["max_push_s"] = max(times)
+        raw.close()
+    ''')
+    assert out["max_push_s"] < 3.0
