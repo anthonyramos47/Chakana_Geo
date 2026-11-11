@@ -304,3 +304,30 @@ def test_stop_reaches_a_running_streaming_action():
             out["steps"] = recv_until(ws, lambda m: m.get("action") == "done")["steps"]
     ''')
     assert out["steps"] < 50
+
+
+def test_free_port_survives_time_wait_but_skips_live_server():
+    # A re-run must get the port back (the old tabs reconnect there), while a
+    # running server keeps its port to itself.
+    import socket
+    from kayviz.server import find_free_port
+    port = 18950
+    live = socket.socket()
+    live.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    live.bind(("127.0.0.1", port))
+    live.listen()
+    assert find_free_port(port) == port + 1
+    client = socket.create_connection(("127.0.0.1", port))
+    conn, _ = live.accept()
+    conn.close()                    # server side closes first -> TIME_WAIT
+    client.close()
+    live.close()
+    assert find_free_port(port) == port
+
+
+def test_info_reports_a_server_instance():
+    out = _run('''
+        kv.init()
+        out["instance"] = requests.get(kv.url() + "/api/_info").json().get("instance")
+    ''')
+    assert isinstance(out["instance"], str) and len(out["instance"]) == 32

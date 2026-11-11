@@ -233,6 +233,7 @@ function setBackgroundTheme(name) {
   _bgButton.title       = t.title;
   _bgButton.dataset.theme = name;
   try { localStorage.setItem('kayviz.background', name); } catch (_) {}
+  window.__invalidate?.();
 }
 _bgButton.addEventListener('click', () =>
   setBackgroundTheme(_bgButton.dataset.theme === 'dark' ? 'light' : 'dark'));
@@ -252,6 +253,7 @@ function setStudio(on) {
   _studioButton.title = on ? 'Studio render: on (AO + soft shadows)' : 'Studio render: off';
   _studioButton.style.background = on ? '#6a5a20' : '#2a2a2a';
   try { localStorage.setItem('kayviz.studio', on ? '1' : '0'); } catch (_) {}
+  window.__invalidate?.(3);
 }
 _studioButton.addEventListener('click', () => setStudio(!studio.enabled));
 document.body.appendChild(_studioButton);
@@ -298,6 +300,7 @@ function savePicture({ background = 'viewer', scale = 2 } = {}) {
     grid.visible = oldGrid;
     renderer.setClearColor(oldClear, oldAlpha);
     renderer.setPixelRatio(pr);
+    window.__invalidate();               // the resize back cleared the canvas
   }
 }
 window.__savePicture = savePicture;
@@ -331,10 +334,25 @@ _saveButton.addEventListener('click', () => {
 });
 document.body.append(_saveButton, _saveMenu);
 
-// ── Render loop ───────────────────────────────────────────────────────────────
+// ── Render loop (on demand) ───────────────────────────────────────────────────
+// A frame is drawn only when something may have changed: the camera moved (orbit
+// damping included), a server message arrived (ws.js), the viewer or a panel
+// changed, the window resized. An idle viewer costs no GPU time, which matters with
+// studio mode (~34 ms per frame) and several open tabs. Code that changes the scene
+// some other way calls window.__invalidate().
+let _framesDue = 2;
+window.__invalidate = (frames = 2) => { _framesDue = Math.max(_framesDue, frames); };
+for (const type of ['input', 'change', 'click', 'keydown', 'wheel', 'pointerdown', 'pointerup'])
+  document.addEventListener(type, () => window.__invalidate(), { capture: true, passive: true });
+document.addEventListener('pointermove', e => { if (e.buttons) window.__invalidate(); },
+                          { capture: true, passive: true });
+document.addEventListener('viewer-changed', () => window.__invalidate());
+
 function animate() {
   requestAnimationFrame(animate);
-  controls.update();
+  if (controls.update()) _framesDue = Math.max(_framesDue, 1);   // true while moving/damping
+  if (_framesDue <= 0) return;
+  _framesDue--;
   window.__renderFrame();
   _gizmo.draw(camera.quaternion);
   if (window.__viewer) labelRenderer.render(window.__viewer, camera);
@@ -463,6 +481,7 @@ window.addEventListener('resize', () => {
   camera.updateProjectionMatrix();
   renderer.setSize(window.innerWidth, window.innerHeight);
   labelRenderer.resize(window.innerWidth, window.innerHeight);
+  window.__invalidate();
 });
 
 // ── Screenshot bridge ─────────────────────────────────────────────────────────

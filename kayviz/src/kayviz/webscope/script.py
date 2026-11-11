@@ -547,6 +547,11 @@ def show(block: "str | bool" = "auto", app: str = None) -> None:
     viewer_url = f"{_url}/?app={name}"
     if name in _opened:
         print(f"[kayviz] Viewer already open — {viewer_url}", flush=True)
+    elif (_mode == "local" and os.environ.get("KAYVIZ_NO_BROWSER", "0") != "1"
+          and _wait_for_tab(name)):
+        # A tab from an earlier run reconnected (it reloads itself for this server).
+        print(f"[kayviz] Reusing the open viewer tab — {viewer_url}", flush=True)
+        _opened.add(name)
     else:
         print(f"[kayviz] Opening {viewer_url}", flush=True)
         if os.environ.get("KAYVIZ_NO_BROWSER", "0") != "1":
@@ -669,6 +674,25 @@ def _port_owner(port: int):
     except psutil.Error:
         pass
     return None
+
+
+# A tab whose server stopped retries every <= 2 s (ws.js), so after a restart
+# on the same port it is back within this window.
+_TAB_REUSE_WAIT = 2.5
+
+
+def _wait_for_tab(name: str, timeout: float = _TAB_REUSE_WAIT) -> bool:
+    """True if a browser tab of app *name* connects within *timeout* seconds."""
+    app = _registry.get_app(name)
+    clients = getattr(app, "_clients", None)
+    if clients is None:          # app without client tracking: can't tell
+        return False
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if clients:
+            return True
+        time.sleep(0.1)
+    return False
 
 
 def _ensure_init() -> None:

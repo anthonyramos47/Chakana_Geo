@@ -21,6 +21,7 @@ import os
 import socket
 import threading
 import time
+import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -77,13 +78,16 @@ def create_app(apps=(), shared: bool = False, default_app: str | None = None) ->
     fastapi_app = FastAPI(title="kayviz", lifespan=lifespan)
     fastapi_app.add_middleware(_NoCacheMiddleware)
     fastapi_app.state.default_app = default_app
+    # Tabs left from an earlier server reconnect to a new one on the same port;
+    # a different instance id tells them to reload (fresh panel and scene).
+    instance = uuid.uuid4().hex
 
     @fastapi_app.get("/api/_info")
     def info():
         names = app_names()
         user_apps = [n for n in names if n != "script"]
         default = fastapi_app.state.default_app or (user_apps[-1] if user_apps else "script")
-        return {"apps": names, "default": default, "shared": shared}
+        return {"apps": names, "default": default, "shared": shared, "instance": instance}
 
     @fastapi_app.post("/api/_shutdown")
     def shutdown():
@@ -110,6 +114,10 @@ def find_free_port(start: int = 8000, host: str = "127.0.0.1", tries: int = 100)
     """Return the first port >= start that can be bound on *host*."""
     for port in range(start, start + tries):
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            # Like uvicorn: connections of a server that just stopped linger in
+            # TIME_WAIT; without this the port looks taken and a re-run moves to
+            # the next one, away from the tabs waiting to reconnect.
+            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             try:
                 s.bind((host, port))
                 return port

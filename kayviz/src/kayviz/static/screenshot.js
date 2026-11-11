@@ -15,6 +15,7 @@
  */
 
 const POLL_MS = 400;
+const POLL_DOWN_MS = 3000;
 
 /**
  * Swap the scene background for a capture.  `bg` is "viewer" (keep it),
@@ -132,11 +133,12 @@ function renderView(THREE, renderer, scene, camera, bounds, view, width, height)
 
 export function startScreenshotBridge(THREE) {
   async function poll() {
-    let job = null;
+    if (window.__kayvizOffline) return;          // server gone for good (ws.js)
+    let job = null, down = false;
     try {
       const r = await fetch('/api/script/screenshot/pending');
       if (r.ok) job = await r.json();
-    } catch (e) { /* server down — keep polling */ }
+    } catch (e) { down = true; /* server down — poll slowly until it is back */ }
 
     if (job && job.id) {
       const renderer = window.__renderer;
@@ -162,6 +164,7 @@ export function startScreenshotBridge(THREE) {
       } finally {
         if (grid) grid.visible = true;
         restoreBg();
+        window.__invalidate?.();         // capture resized the canvas, which clears it
       }
 
       // Report the live camera alongside the images so ws.get_camera() can
@@ -192,7 +195,7 @@ export function startScreenshotBridge(THREE) {
       } catch (e) { /* drop it; python will time out */ }
     }
 
-    setTimeout(poll, POLL_MS);
+    setTimeout(poll, down ? POLL_DOWN_MS : POLL_MS);
   }
   poll();
 }

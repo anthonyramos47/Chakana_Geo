@@ -5,6 +5,24 @@
  * every action; handlers registered via onMessage() receive the parsed JSON.
  */
 
+const RETRY_MIN_MS = 250;
+const RETRY_MAX_MS = 2000;               // kayviz.show() waits 2.5 s for a tab to come back
+const GIVE_UP_MS   = 15 * 60 * 1000;
+
+// The server id this page was loaded from; a reconnect to a different server
+// (a re-run of the script) reloads the page so panel and scene come from it.
+let _instance = null;
+let _instanceReady = fetch('/api/_info').then(r => r.json())
+  .then(info => { _instance = info.instance ?? null; }).catch(() => {});
+
+async function checkServerInstance() {
+  await _instanceReady;
+  try {
+    const info = await (await fetch('/api/_info')).json();
+    if (_instance && info.instance && info.instance !== _instance) location.reload();
+  } catch (_) { /* server went away again; onclose retries */ }
+}
+
 export class WSClient {
   /**
    * @param {string} url     WebSocket URL, e.g. 'ws://localhost:8000/api/lmesh/ws'
@@ -21,12 +39,9 @@ export class WSClient {
 
   /** Send an action to the backend. Payload fields are merged into the message. */
   send(action, payload = {}) {
-    if (this.ws.readyState !== WebSocket.OPEN) {
-      console.warn('WebSocket not open — queuing action', action);
-      this.ws.addEventListener('open', () => this.send(action, payload), { once: true });
-      return;
-    }
-    this.ws.send(JSON.stringify({ action, ...payload }));
+    const msg = JSON.stringify({ action, ...payload });
+    if (this.ws.readyState === WebSocket.OPEN) this.ws.send(msg);
+    else this._pending.push(msg);         // delivered by onopen after a reconnect
   }
 
   /** Register a callback for all server messages (after viewer.applyMessage). */
@@ -35,12 +50,16 @@ export class WSClient {
   // ── Internals ─────────────────────────────────────────────────────────────
 
   _connect() {
-    this._retryDelay = this._retryDelay ?? 1000;
+    this._pending ??= [];
     this.ws = new WebSocket(this._url);
 
     this.ws.onopen = () => {
-      this._retryDelay = 1000;   // reset backoff on successful connect
+      const reconnected = this._downSince != null;
+      this._downSince  = null;
+      this._retryDelay = RETRY_MIN_MS;
       this._setStatus('Connected', false);
+      if (reconnected) checkServerInstance();
+      for (const msg of this._pending.splice(0)) this.ws.send(msg);
     };
 
     this.ws.onmessage = e => {
@@ -56,6 +75,7 @@ export class WSClient {
         this.viewer.applyMessage(data);
       }
       this._handlers.forEach(cb => cb(data));
+      window.__invalidate?.();
 
       if (data.action === 'error') {
         this._setStatus('Server: ' + data.message, true);
@@ -68,8 +88,16 @@ export class WSClient {
     this.ws.onclose = e => {
       // code 1000 = normal closure (page unload etc.) — don't reconnect
       if (e.code === 1000) return;
-      this._retryDelay = Math.min(this._retryDelay * 2, 10000);
-      this._setStatus(`Disconnected (${e.code}) — retrying in ${this._retryDelay/1000}s…`, true);
+      this._downSince ??= Date.now();
+      // Retry quickly (a script re-run restarts the server on the same port and
+      // reuses this tab), but give up once the server has been gone for a while.
+      if (Date.now() - this._downSince > GIVE_UP_MS) {
+        window.__kayvizOffline = true;
+        this._setStatus('Viewer server stopped — reload this page after restarting it.', true);
+        return;
+      }
+      this._retryDelay = Math.min((this._retryDelay ?? RETRY_MIN_MS) * 2, RETRY_MAX_MS);
+      this._setStatus(`Disconnected — reconnecting…`, true);
       setTimeout(() => this._connect(), this._retryDelay);
     };
 
