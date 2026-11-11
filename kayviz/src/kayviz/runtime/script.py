@@ -187,7 +187,7 @@ def register_surface_mesh(name: str, vertices, faces,
                           show_edges: bool = False,
                           edge_color=(0.1, 0.1, 0.1),
                           edge_radius: float = 0.0, show: bool = True,
-                          material=None, shading: str = "auto") -> None:
+                          material=None, shading: str = "auto", face_size=None) -> None:
     """Mirrors ps.register_surface_mesh(). Pass show_edges=True to overlay the wireframe,
     show=False to register it hidden (tick it in the scene panel to show it).
 
@@ -204,11 +204,8 @@ def register_surface_mesh(name: str, vertices, faces,
                               color=color, opacity=opacity,
                               show_edges=show_edges, edge_color=edge_color,
                               edge_radius=edge_radius, show=show, material=material,
-                              shading=shading)
-    if isinstance(result, list):
-        push_objects(result)
-    else:
-        _push(result)
+                              shading=shading, face_size=face_size)
+    _push(result)
 
 
 def register_curve_network(name: str, vertices, edges,
@@ -950,11 +947,6 @@ def _ping_info(base_url: str) -> Optional[dict]:
     except (requests.RequestException, ValueError):
         pass
     return None
-
-
-def _ping() -> bool:
-    """Return True if the server is reachable."""
-    return _url is not None and _ping_info(_url) is not None
 
 
 def _wait_until_idle(poll_interval: float = 1.0, timeout: float = 24 * 3600.0) -> None:

@@ -265,6 +265,9 @@ scalar values are drawn in a grey NaN colour. `kv.add_*_quantity` also checks th
 it must be registered (removed or cleared ones are gone), of a fitting type (scalars on
 surface meshes; vectors on meshes or point clouds) and have one value per vertex / face.
 Re-registering a structure replaces it with its quantities, as `kv.remove` drops them.
+Convex polygons are fanned; non-convex ones (e.g. L-shaped panels) are ear-clipped in their
+plane so no triangle lies outside the polygon. When most faces of a mesh are not convex in
+their plane (twisted, non-planar faces), they are fanned and a warning says so.
 
 Object dicts in `"objects"` (built by `kayviz.serializers`). Arrays are numpy float32 / int32
 (always copies of the caller's arrays). On the WebSocket a message with arrays is one

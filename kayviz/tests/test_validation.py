@@ -81,3 +81,36 @@ def test_vectortype_and_shading_are_checked():
     quad = ser.surface_mesh("Q", np.zeros((4, 3)), [[0, 1, 2, 3]])
     assert tri["shading"] == "smooth" and quad["shading"] == "flat"
     assert ser.surface_mesh("Q", np.zeros((4, 3)), [[0, 1, 2, 3]], shading="smooth")["shading"] == "smooth"
+
+
+def test_scene_and_kv_take_the_same_arguments():
+    # The two front doors to the serializers must not drift apart.
+    import inspect
+    import kayviz as kv
+    alias = {"target_name": "target"}
+    for f in ["register_surface_mesh", "register_curve_network", "register_point_cloud",
+              "register_vector_field", "add_scalar_quantity", "add_vector_quantity"]:
+        a = set(inspect.signature(getattr(kv, f)).parameters)
+        b = {alias.get(p, p) for p in list(inspect.signature(getattr(kv.Scene, f)).parameters)[1:]}
+        assert a == b, (f, a ^ b)
+
+
+def _areas(V, d):
+    T = d["faces"].reshape(-1, 3)
+    return 0.5 * np.cross(V[T[:, 1]] - V[T[:, 0]], V[T[:, 2]] - V[T[:, 0]])[:, 2]
+
+
+@pytest.mark.parametrize("start", range(6))
+def test_non_convex_polygons_are_triangulated_inside(start):
+    # An L-shaped hexagon: a fan from a reflex vertex would cover area outside it.
+    L = np.array([[0, 0, 0], [2, 0, 0], [2, 1, 0], [1, 1, 0], [1, 2, 0], [0, 2, 0]], float)
+    a = _areas(L, ser.surface_mesh("L", L, [list(np.roll(np.arange(6), -start))]))
+    assert (a > 0).all() and a.sum() == pytest.approx(3.0)
+
+
+def test_non_convex_quads_leave_the_quad_fast_path():
+    dart = np.array([[0, 0, 0], [1, 0.4, 0], [2, 0, 0], [1, 2, 0]], float)
+    d = ser.surface_mesh("D", dart, [[1, 2, 3, 0]])
+    assert d["face_size"] == 3 and (_areas(dart, d) > 0).all()
+    square = np.array([[0, 0, 0], [1, 0, 0], [1, 1, 0], [0, 1, 0]], float)
+    assert ser.surface_mesh("S", square, [[0, 1, 2, 3]])["face_size"] == 4

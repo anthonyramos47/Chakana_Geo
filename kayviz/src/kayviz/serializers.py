@@ -187,6 +187,78 @@ def _polygon_edges(F) -> np.ndarray:
     return np.stack([key // n, key % n], axis=1).astype(np.int32)
 
 
+def _nonconvex(Q: np.ndarray) -> np.ndarray:
+    """(m,) True for the polygons Q (m, k, 3) that are not convex in their plane
+    (seen along the Newell normal). Degenerate polygons count as convex (fan)."""
+    nxt = np.roll(Q, -1, axis=1)
+    normal = np.cross(Q, nxt).sum(axis=1)                       # Newell: 2 x area normal
+    turn = np.cross(Q - np.roll(Q, 1, axis=1), nxt - Q)          # at each vertex
+    c = np.einsum("mkd,md->mk", turn, normal)
+    tol = 1e-9 * np.abs(c).max(axis=1, keepdims=True)
+    return (c < -tol).any(axis=1)
+
+
+def _ear_clip(P: np.ndarray) -> list[tuple[int, int, int]]:
+    """Triangles (local indices) of one simple polygon P (k, 3), by ear clipping in
+    its plane; a fan if the polygon is degenerate or not simple."""
+    k = len(P)
+    fan = [(0, t, t + 1) for t in range(1, k - 1)]
+    n = np.cross(P, np.roll(P, -1, axis=0)).sum(axis=0)
+    if not np.linalg.norm(n) > 0:
+        return fan
+    n = n / np.linalg.norm(n)
+    u = np.cross(n, [1.0, 0.0, 0.0] if abs(n[0]) < 0.9 else [0.0, 1.0, 0.0])
+    u /= np.linalg.norm(u)
+    Q = np.stack([P @ u, P @ np.cross(n, u)], axis=1)            # counter-clockwise
+    cross = lambda a, b, c: (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])
+    idx, tris = list(range(k)), []
+    while len(idx) > 3:
+        for j in range(len(idx)):
+            a, b, c = idx[j - 1], idx[j], idx[(j + 1) % len(idx)]
+            if cross(Q[a], Q[b], Q[c]) <= 0:
+                continue                                         # reflex vertex
+            if any(cross(Q[a], Q[b], Q[p]) >= 0 and cross(Q[b], Q[c], Q[p]) >= 0 and
+                   cross(Q[c], Q[a], Q[p]) >= 0 for p in idx if p not in (a, b, c)):
+                continue                                         # another vertex inside
+            tris.append((a, b, c))
+            idx.pop(j)
+            break
+        else:
+            return fan                                           # not simple
+    tris.append(tuple(idx))
+    return tris
+
+
+def _triangulate(polys, V: np.ndarray, name: str = "") -> tuple[np.ndarray, np.ndarray]:
+    """Triangles (T, 3) in face order and triangles per face. Convex polygons are
+    fanned from their first vertex; non-convex ones are ear-clipped (a fan would
+    cover area outside them). Vectorized per polygon size; *polys* is a uniform
+    (F, k) array or a list of polygons."""
+    uniform = isinstance(polys, np.ndarray)
+    sizes = np.full(len(polys), polys.shape[1]) if uniform else np.array([len(p) for p in polys])
+    tpf = sizes - 2
+    start = np.concatenate([[0], np.cumsum(tpf)[:-1]])
+    T = np.empty((int(tpf.sum()), 3), np.int64)
+    for k in np.unique(sizes):
+        rows = np.nonzero(sizes == k)[0]
+        F = polys if uniform else np.array([polys[i] for i in rows], np.int64).reshape(len(rows), k)
+        t = np.arange(1, k - 1)
+        tris = np.stack([np.repeat(F[:, :1], k - 2, axis=1), F[:, t], F[:, t + 1]], axis=-1)
+        if k > 3:
+            bad = np.nonzero(_nonconvex(V[F]))[0]
+            if len(bad) > max(1000, len(rows) // 5):
+                # most of them: twisted (non-planar) faces rather than non-convex
+                # panels; ear clipping in a plane means little there, and is slow
+                warnings.warn(f"{name}: {len(bad)} of {len(rows)} faces with {k} vertices are "
+                              f"not convex in their plane (or not planar); drawn as fans",
+                              stacklevel=4)
+                bad = bad[:0]
+            for r in bad:
+                tris[r] = F[r][np.array(_ear_clip(V[F[r]]))]
+        T[(start[rows][:, None] + np.arange(k - 2)).ravel()] = tris.reshape(-1, 3)
+    return T, tpf
+
+
 def surface_mesh(name: str, vertices, faces, color=(0.8, 0.8, 0.8),
                  face_size=None, opacity=1.0, show_edges=False,
                  edge_color=(0.1, 0.1, 0.1), edge_radius: float = 0.0, show: bool = True,
@@ -215,12 +287,14 @@ def surface_mesh(name: str, vertices, faces, color=(0.8, 0.8, 0.8),
     uniform = isinstance(F, np.ndarray)
     first_len = F.shape[1] if uniform else 3
 
+    V3 = verts.reshape(-1, 3).astype(np.float64)
     tris_per_face = None
-    if not uniform or (face_size is None and first_len > 4):
-        polys = F if not uniform else list(F)
-        tris = [(f[0], f[t], f[t + 1]) for f in polys for t in range(1, len(f) - 1)]
-        tris_per_face = [len(f) - 2 for f in polys]
-        faces_arr = np.array(tris, dtype=np.int32).reshape(-1)
+    # Uniform triangles and convex quads go as they are (the viewer fans the quads);
+    # larger, mixed or non-convex polygons are triangulated here.
+    quads_bent = uniform and first_len == 4 and face_size is None and _nonconvex(V3[F]).any()
+    if not uniform or (face_size is None and first_len > 4) or quads_bent:
+        tris, tris_per_face = _triangulate(F, V3, name)
+        faces_arr = _i32(tris)
         fs = 3
     else:
         faces_arr = _i32(F)

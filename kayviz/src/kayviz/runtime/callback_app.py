@@ -27,7 +27,7 @@ from __future__ import annotations
 import asyncio
 import json
 import traceback
-from dataclasses import dataclass, make_dataclass
+from dataclasses import make_dataclass
 from typing import Callable
 
 from fastapi import WebSocket, WebSocketDisconnect
@@ -36,7 +36,6 @@ from .app import GUIApp
 from .broadcast_mixin import BroadcastMixin
 from .wire import send, encode_async
 from . import registry as _registry
-from .state_schema import gui_state
 from kayviz.runtime import imgui as _imgui
 
 
