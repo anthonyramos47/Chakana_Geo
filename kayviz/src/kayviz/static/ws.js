@@ -106,17 +106,29 @@ export class WSClient {
       try { data = typeof e.data === 'string' ? JSON.parse(e.data) : decodeFrame(e.data); }
       catch (err) { console.error('Bad message from server:', err); return; }
 
-      if (data.action === 'clear') {
-        this.viewer.clearAll();
-      } else if (data.action === 'remove' && data.name) {
-        this.viewer.remove(data.name);
-      } else if (data.objects?.length) {
-        this.viewer.applyMessage(data);
+      const errors = this.viewer.errors ?? [];
+      errors.length = 0;
+      try {
+        if (data.action === 'clear') {
+          this.viewer.clearAll();
+        } else if (data.action === 'remove' && data.name) {
+          this.viewer.remove(data.name);
+        } else if (data.objects?.length) {
+          this.viewer.applyMessage(data);
+        }
+      } catch (err) {
+        console.error('[kayviz] could not apply message:', err);
+        errors.push(err.message);
+      } finally {
+        window.__invalidate?.();
       }
-      this._handlers.forEach(cb => cb(data));
-      window.__invalidate?.();
+      for (const cb of this._handlers) {
+        try { cb(data); } catch (err) { console.error('[kayviz] message handler failed:', err); }
+      }
 
-      if (data.action === 'error') {
+      if (errors.length) {
+        this._setStatus(`Could not show ${errors.length} object(s): ${errors[0]}`, true);
+      } else if (data.action === 'error') {
         this._setStatus('Server: ' + data.message, true);
         console.error('Server error:', data.message);
       } else if (data.action) {

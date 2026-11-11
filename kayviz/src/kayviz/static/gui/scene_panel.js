@@ -525,7 +525,7 @@ export class ScenePanel {
     });
 
     const drawHistogram = () =>
-      child.drawHistogram(canvas, gradCanvas, this._viridis.bind(this));
+      child.drawHistogram(canvas, gradCanvas);
 
     let scalarOpen = false;
     scalarHeader.addEventListener('click', () => {
@@ -804,14 +804,6 @@ export class ScenePanel {
   }
 
   // ── Color utilities ───────────────────────────────────────────────────────
-
-  _viridis(t) {
-    const s = [[0.267,0.005,0.329],[0.190,0.407,0.574],[0.128,0.566,0.551],
-               [0.208,0.718,0.473],[0.993,0.906,0.144]];
-    const i = Math.min(Math.floor(t*(s.length-1)), s.length-2);
-    const f = t*(s.length-1)-i;
-    return s[i].map((c,k) => c + f*(s[i+1][k]-c));
-  }
 
   _rgbToHex([r, g, b]) {
     const h = v => Math.round(v * 255).toString(16).padStart(2, '0');

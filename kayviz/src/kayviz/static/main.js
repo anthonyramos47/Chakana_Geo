@@ -431,30 +431,35 @@ renderer.domElement.addEventListener('click', e => {
 
   if (entry.type === 'surface_mesh') {
     const fi  = hit.faceIndex;   // triangle index
-    // Map triangle → polygon using trisPerFace
-    let polyIdx = fi;
-    const tpf = entry.opts.trisPerFace;
+    // Polygon and its vertex ids from the original faces (the GPU geometry is a
+    // non-indexed copy while a face scalar is shown).
+    const F = entry.opts.faces, tpf = entry.opts.trisPerFace;
+    const fs = entry.opts.faceSize ?? 3;
+    let polyIdx, verts;
     if (tpf) {
-      let cum = 0;
-      for (let p = 0; p < tpf.length; p++) {
-        cum += tpf[p];
-        if (fi < cum) { polyIdx = p; break; }
-      }
-    }
-    // Vertex indices from index buffer
-    const geo = entry.mesh.geometry;
-    let v0, v1, v2;
-    if (geo.index) {
-      v0 = geo.index.getX(fi*3);
-      v1 = geo.index.getX(fi*3 + 1);
-      v2 = geo.index.getX(fi*3 + 2);
+      let t = 0;
+      for (polyIdx = 0; polyIdx < tpf.length && t + tpf[polyIdx] <= fi; polyIdx++) t += tpf[polyIdx];
+      verts = [F[3*t], F[3*t + 1], F[3*t + 2]];
+      for (let k = 1; k < (tpf[polyIdx] ?? 0); k++) verts.push(F[3*(t + k) + 2]);
     } else {
-      v0 = fi*3; v1 = fi*3+1; v2 = fi*3+2;
+      polyIdx = Math.floor(fi / Math.max(1, fs - 2));
+      verts = Array.from(F.slice(polyIdx * fs, polyIdx * fs + fs));
     }
     html += `type:     surface_mesh<br>`;
-    html += `triangle: ${fi}<br>`;
-    html += tpf ? `polygon:  ${polyIdx}<br>` : '';
-    html += `vertices: [${v0}, ${v1}, ${v2}]<br>`;
+    html += `polygon:  ${polyIdx}${fs > 3 || tpf ? ` (triangle ${fi})` : ''}<br>`;
+    html += `vertices: [${verts.join(', ')}]<br>`;
+    const V = entry.opts.vertices;
+    let near = verts[0], best = Infinity;
+    for (const v of verts) {
+      const d = (V[3*v] - pt.x) ** 2 + (V[3*v + 1] - pt.y) ** 2 + (V[3*v + 2] - pt.z) ** 2;
+      if (d < best) { best = d; near = v; }
+    }
+    html += `nearest vertex: ${near}<br>`;
+    const scalar = entry.activeScalar && entry.children.get(entry.activeScalar);
+    if (scalar) {
+      const val = scalar.values[scalar.definedOn === 'faces' ? polyIdx : near];
+      if (val != null) html += `${_escHtml(scalar.key)}: ${Number(val).toPrecision(6)}<br>`;
+    }
     html += `hit:      ${ptStr}`;
   } else {
     // curve_network

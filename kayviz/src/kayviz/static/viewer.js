@@ -30,6 +30,7 @@ export class Viewer {
     this.scene    = scene;
     this.matLib   = matLib;
     this._objects = new Map();  // name → SceneEntry
+    this.errors   = [];         // objects of the last messages that could not be shown
     this._batch   = 0;          // > 0 inside applyMessage: one 'viewer-changed' at the end
     this._emitDue = false;
     // one shader for every surface mesh (scene panel "Shader"); kept across reloads
@@ -121,6 +122,12 @@ export class Viewer {
     const e = this._objects.get(name);
     if (!e) return;
     e.color = [...color];
+    const scalar = e.activeScalar && e.children.get(e.activeScalar);
+    if (scalar) {
+      // the material stays white under the colormap; this colour comes back with it
+      scalar._priorMaterialColor = [...color];
+      return;
+    }
     // normal / depth / custom shader materials have no colour (the shader may take uColor)
     e.mesh.material.color?.setRGB(color[0], color[1], color[2]);
     e.mesh.material.uniforms?.uColor?.value.setRGB(color[0], color[1], color[2]);
@@ -205,9 +212,7 @@ export class Viewer {
     this.matLib.applyTo(e.mesh, matName, e.color, e.opacity);
     e.opts.material = matName;
     e.opts.pinned   = true;          // a per-mesh choice survives the global Shader dropdown
-    if (e.mesh.geometry.hasAttribute('color')) {
-      e.mesh.material.vertexColors = true;
-    }
+    this._reapplyScalar(e);
     e.mesh.material.needsUpdate = true;
     this._emit();
   }
@@ -221,10 +226,18 @@ export class Viewer {
       if (e.type !== 'surface_mesh' || e.opts.pinned) continue;
       this.matLib.applyTo(e.mesh, matName, e.color, e.opacity);
       e.opts.material = matName;
-      if (e.mesh.geometry.hasAttribute('color')) e.mesh.material.vertexColors = true;
+      this._reapplyScalar(e);
       e.mesh.material.needsUpdate = true;
     }
     this._emit();
+  }
+
+  /** After a material swap: colour the new material with the active scalar again. */
+  _reapplyScalar(e) {
+    const child = e.activeScalar && e.children.get(e.activeScalar);
+    if (!child) return;
+    child._priorMaterialColor = undefined;   // the new material holds e.color
+    child.apply(e.mesh, e);
   }
 
   setUniform(name, uniformName, value) {
@@ -325,7 +338,7 @@ export class Viewer {
     if (key) {
       const child = e.children.get(key);
       if (!child || child.type !== 'scalar') { e.activeScalar = null; return; }
-      child.apply(e.mesh, e, this._viridis.bind(this));
+      child.apply(e.mesh, e);
     }
     this._emit();
   }
@@ -335,7 +348,7 @@ export class Viewer {
     if (!e) return;
     const child = e.children.get(key);
     if (!child || child.type !== 'scalar') return;
-    child.setRange(vmin, vmax, e.mesh, e, this._viridis.bind(this));
+    child.setRange(vmin, vmax, e.mesh, e);
   }
 
   // ── Vector quantity ───────────────────────────────────────────────────────
@@ -492,83 +505,95 @@ export class Viewer {
       // stream (rather than its own message) so it stays ordered with the
       // geometry pushed after it in the same callback.
       if (obj.action === 'clear') { this.clearAll(); continue; }
-      switch (obj.type) {
-        case 'surface_mesh': {
-          this.registerSurfaceMesh(obj.name, obj.vertices, obj.faces,
-                                   obj.face_size ?? 3, obj.color ?? [0.8,0.8,0.8],
-                                   obj.opacity ?? 1.0, obj.material ?? null);
-          const en = this._objects.get(obj.name);
-          if (en) {
-            if (obj.tris_per_face) en.opts.trisPerFace = obj.tris_per_face;
-            if (obj.poly_edges) {
-              // index pairs into the mesh's own vertices
-              en.opts.edgeVerts = en.opts.vertices;
-              en.opts.edgeIdx   = obj.poly_edges;
-            } else if (obj.poly_edge_verts) {
-              // older servers: coordinates of both ends per edge
-              en.opts.edgeVerts = obj.poly_edge_verts;
-              en.opts.edgeIdx   = obj.poly_edge_conn;
-            }
-            if (obj.show_edges && en.opts.edgeIdx) {
-              this.addEdgeChild(obj.name, en.opts.edgeVerts, en.opts.edgeIdx,
-                                obj.edge_color ?? [0.1, 0.1, 0.1], obj.edge_radius ?? 0);
-            }
-          }
-          break;
-        }
-        case 'curve_network':
-          this.registerCurveNetwork(obj.name, obj.vertices, obj.edges,
-                                    obj.color ?? [0.8,0.2,0.2], obj.radius ?? 0.002);
-          break;
-        case 'point_cloud':
-          this.registerPointCloud(obj.name, obj.points,
-                                  obj.color ?? [0.2,0.5,0.8], obj.radius ?? 0.0005);
-          break;
-        case 'edge_child':
-          // { type:'edge_child', target, vertices, edges, color, radius }
-          this.addEdgeChild(obj.target, obj.vertices, obj.edges,
-                            obj.color ?? [0.1,0.1,0.1], obj.radius ?? 0);
-          break;
-        case 'scalar_quantity': {
-          this.addScalarQuantity(obj.target, obj.name, obj.values,
-                                 obj.defined_on ?? 'vertices');
-          const parent = this._objects.get(obj.target);
-          if (!parent || !parent.children.has(obj.name)) break;
-          if (obj.show === true) {
-            this.setActiveScalar(obj.target, obj.name);
-            hide.delete(obj.target);
-            this.setEnabled(obj.target, true);
-            shown = true;
-          } else if (obj.show === false && parent.activeScalar === obj.name) {
-            this.setActiveScalar(obj.target, null);
-          }
-          break;
-        }
-        case 'vector_quantity': {
-          this.addVectorQuantity(obj.target, obj.name, obj.vectors,
-                                 obj.defined_on ?? 'vertices', {
-                                   color: obj.color ?? null, length: obj.length ?? 0.05,
-                                   radius: obj.radius ?? null, show: obj.show ?? null,
-                                 });
-          const parent = this._objects.get(obj.target);
-          if (obj.show === true && parent?.children.has(obj.name)) {
-            hide.delete(obj.target);
-            this.setEnabled(obj.target, true);
-            shown = true;
-          }
-          break;
-        }
-        case 'vector_field':
-          this.registerVectorField(obj.name, obj.origins, obj.vectors,
-                                   obj.length ?? 0.05, obj.radius ?? null, obj.color ?? [0.2, 0.8, 0.4]);
-          break;
-        case 'set_enabled':
-          this.setEnabled(obj.name, obj.enabled);
-          break;
+      try { shown = this._applyObject(obj, hide) || shown; }
+      catch (err) {
+        // one bad object must not lose the rest of the message
+        console.error(`[kayviz] could not show '${obj.name ?? obj.target}':`, err);
+        this.errors.push(`${obj.name ?? obj.target}: ${err.message}`);
       }
     }
     for (const name of hide) this.setEnabled(name, false);
     if (hide.size || shown) this._emit();    // refresh the scene panel's checkboxes
+  }
+
+  /** One object of a message; returns true if it showed its (hidden) target. */
+  _applyObject(obj, hide) {
+    let shown = false;
+    switch (obj.type) {
+      case 'surface_mesh': {
+        this.registerSurfaceMesh(obj.name, obj.vertices, obj.faces,
+                                 obj.face_size ?? 3, obj.color ?? [0.8,0.8,0.8],
+                                 obj.opacity ?? 1.0, obj.material ?? null);
+        const en = this._objects.get(obj.name);
+        if (en) {
+          if (obj.tris_per_face) en.opts.trisPerFace = obj.tris_per_face;
+          if (obj.poly_edges) {
+            // index pairs into the mesh's own vertices
+            en.opts.edgeVerts = en.opts.vertices;
+            en.opts.edgeIdx   = obj.poly_edges;
+          } else if (obj.poly_edge_verts) {
+            // older servers: coordinates of both ends per edge
+            en.opts.edgeVerts = obj.poly_edge_verts;
+            en.opts.edgeIdx   = obj.poly_edge_conn;
+          }
+          if (obj.show_edges && en.opts.edgeIdx) {
+            this.addEdgeChild(obj.name, en.opts.edgeVerts, en.opts.edgeIdx,
+                              obj.edge_color ?? [0.1, 0.1, 0.1], obj.edge_radius ?? 0);
+          }
+        }
+        break;
+      }
+      case 'curve_network':
+        this.registerCurveNetwork(obj.name, obj.vertices, obj.edges,
+                                  obj.color ?? [0.8,0.2,0.2], obj.radius ?? 0.002);
+        break;
+      case 'point_cloud':
+        this.registerPointCloud(obj.name, obj.points,
+                                obj.color ?? [0.2,0.5,0.8], obj.radius ?? 0.0005);
+        break;
+      case 'edge_child':
+        // { type:'edge_child', target, vertices, edges, color, radius }
+        this.addEdgeChild(obj.target, obj.vertices, obj.edges,
+                          obj.color ?? [0.1,0.1,0.1], obj.radius ?? 0);
+        break;
+      case 'scalar_quantity': {
+        this.addScalarQuantity(obj.target, obj.name, obj.values,
+                               obj.defined_on ?? 'vertices');
+        const parent = this._objects.get(obj.target);
+        if (!parent || !parent.children.has(obj.name)) break;
+        if (obj.show === true) {
+          this.setActiveScalar(obj.target, obj.name);
+          hide.delete(obj.target);
+          this.setEnabled(obj.target, true);
+          shown = true;
+        } else if (obj.show === false && parent.activeScalar === obj.name) {
+          this.setActiveScalar(obj.target, null);
+        }
+        break;
+      }
+      case 'vector_quantity': {
+        this.addVectorQuantity(obj.target, obj.name, obj.vectors,
+                               obj.defined_on ?? 'vertices', {
+                                 color: obj.color ?? null, length: obj.length ?? 0.05,
+                                 radius: obj.radius ?? null, show: obj.show ?? null,
+                               });
+        const parent = this._objects.get(obj.target);
+        if (obj.show === true && parent?.children.has(obj.name)) {
+          hide.delete(obj.target);
+          this.setEnabled(obj.target, true);
+          shown = true;
+        }
+        break;
+      }
+      case 'vector_field':
+        this.registerVectorField(obj.name, obj.origins, obj.vectors,
+                                 obj.length ?? 0.05, obj.radius ?? null, obj.color ?? [0.2, 0.8, 0.4]);
+        break;
+      case 'set_enabled':
+        this.setEnabled(obj.name, obj.enabled);
+        break;
+    }
+    return shown;
   }
 
   // ── Internals ─────────────────────────────────────────────────────────────
@@ -723,6 +748,11 @@ export class Viewer {
     return geo;
   }
 
+  /** Polygon centroids of a surface mesh (cached; used by labels and face vectors). */
+  faceCentroids(e) {
+    return (e.opts._centroids ??= this._vectorOrigins(e, 'faces'));
+  }
+
   /**
    * Arrow base points of a vector quantity: the vertices / points, or the face
    * barycenters (vertex average of each original polygon). Polygons that the
@@ -784,11 +814,4 @@ export class Viewer {
     return mesh;
   }
 
-  _viridis(t) {
-    const s = [[0.267,0.005,0.329],[0.190,0.407,0.574],[0.128,0.566,0.551],
-               [0.208,0.718,0.473],[0.993,0.906,0.144]];
-    const i = Math.min(Math.floor(t*(s.length-1)), s.length-2);
-    const f = t*(s.length-1)-i;
-    return s[i].map((c,k) => c + f*(s[i+1][k]-c));
-  }
 }

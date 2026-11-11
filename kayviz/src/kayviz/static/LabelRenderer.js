@@ -53,6 +53,7 @@ export class LabelRenderer {
   }
 
   render(viewer, camera) {
+    this._viewer = viewer;
     const ctx = this._ctx;
     const W   = this._canvas.width  / this._dpr;
     const H   = this._canvas.height / this._dpr;
@@ -91,89 +92,17 @@ export class LabelRenderer {
   // ── Surface mesh — face labels ────────────────────────────────────────────
 
   _drawFaceLabels(entry, camera, W, H) {
-    const verts      = entry.opts.vertices;
-    const geo        = entry.mesh.geometry;
-    const trisPerFace = entry.opts.trisPerFace;
-
-    if (trisPerFace) {
-      // Polygon mesh — compute polygon centroids
-      const nFaces = trisPerFace.length;
-      if (nFaces > MAX_FACE_LABELS) {
-        this._drawWarning(`face labels: too many (${nFaces}), max ${MAX_FACE_LABELS}`, W, H);
-        return;
-      }
-      const idx = geo.index;
-      let triOffset = 0;
-      for (let fi = 0; fi < nFaces; fi++) {
-        const nTris = trisPerFace[fi];
-        // Collect unique vertex indices for this polygon
-        const seen = new Set();
-        for (let t = 0; t < nTris; t++) {
-          const base = (triOffset + t) * 3;
-          seen.add(idx.getX(base));
-          seen.add(idx.getX(base + 1));
-          seen.add(idx.getX(base + 2));
-        }
-        // Average positions
-        let cx = 0, cy = 0, cz = 0;
-        for (const vi of seen) {
-          cx += verts[vi*3]; cy += verts[vi*3+1]; cz += verts[vi*3+2];
-        }
-        const s = seen.size;
-        const pt = this._project(cx/s, cy/s, cz/s, camera, W, H);
-        if (pt) this._drawLabel(String(fi), pt.px, pt.py);
-        triOffset += nTris;
-      }
-    } else if (entry.opts.faceSize > 3) {
-      // Uniform n-gon mesh (e.g. quads) sent untriangulated — the client
-      // fan-triangulated it into (faceSize - 2) triangles per face, but no
-      // trisPerFace map was sent. Group triangles back into original faces.
-      const idx      = geo.index;
-      const trisPerN = entry.opts.faceSize - 2;
-      const nFaces   = idx.count / 3 / trisPerN;
-      if (nFaces > MAX_FACE_LABELS) {
-        this._drawWarning(`face labels: too many (${nFaces}), max ${MAX_FACE_LABELS}`, W, H);
-        return;
-      }
-      let triOffset = 0;
-      for (let fi = 0; fi < nFaces; fi++) {
-        const seen = new Set();
-        for (let t = 0; t < trisPerN; t++) {
-          const base = (triOffset + t) * 3;
-          seen.add(idx.getX(base));
-          seen.add(idx.getX(base + 1));
-          seen.add(idx.getX(base + 2));
-        }
-        let cx = 0, cy = 0, cz = 0;
-        for (const vi of seen) {
-          cx += verts[vi*3]; cy += verts[vi*3+1]; cz += verts[vi*3+2];
-        }
-        const s = seen.size;
-        const pt = this._project(cx/s, cy/s, cz/s, camera, W, H);
-        if (pt) this._drawLabel(String(fi), pt.px, pt.py);
-        triOffset += trisPerN;
-      }
-    } else {
-      // All-triangle mesh
-      const idx    = geo.index;
-      const nFaces = idx ? idx.count / 3 : geo.attributes.position.count / 3;
-      if (nFaces > MAX_FACE_LABELS) {
-        this._drawWarning(`face labels: too many (${nFaces}), max ${MAX_FACE_LABELS}`, W, H);
-        return;
-      }
-      for (let fi = 0; fi < nFaces; fi++) {
-        let i0, i1, i2;
-        if (idx) {
-          i0 = idx.getX(fi*3); i1 = idx.getX(fi*3+1); i2 = idx.getX(fi*3+2);
-        } else {
-          i0 = fi*3; i1 = fi*3+1; i2 = fi*3+2;
-        }
-        const cx = (verts[i0*3] + verts[i1*3] + verts[i2*3]) / 3;
-        const cy = (verts[i0*3+1] + verts[i1*3+1] + verts[i2*3+1]) / 3;
-        const cz = (verts[i0*3+2] + verts[i1*3+2] + verts[i2*3+2]) / 3;
-        const pt = this._project(cx, cy, cz, camera, W, H);
-        if (pt) this._drawLabel(String(fi), pt.px, pt.py);
-      }
+    // Centroids of the original polygons (viewer.faceCentroids reads opts.faces /
+    // trisPerFace), never geometry.index: a face scalar shows a non-indexed copy.
+    const C = this._viewer.faceCentroids(entry);
+    const nFaces = C ? C.length / 3 : 0;
+    if (nFaces > MAX_FACE_LABELS) {
+      this._drawWarning(`face labels: too many (${nFaces}), max ${MAX_FACE_LABELS}`, W, H);
+      return;
+    }
+    for (let fi = 0; fi < nFaces; fi++) {
+      const pt = this._project(C[fi*3], C[fi*3+1], C[fi*3+2], camera, W, H);
+      if (pt) this._drawLabel(String(fi), pt.px, pt.py);
     }
   }
 
