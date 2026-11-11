@@ -23,7 +23,7 @@ def _run(body: str, timeout: float = 60.0) -> dict:
         from websockets.sync.client import connect
         import kayviz as kv
 
-        from kayviz.webscope.wire import decode
+        from kayviz.runtime.wire import decode
 
         def recv_until(ws, pred, timeout=5.0):
             end = time.time() + timeout

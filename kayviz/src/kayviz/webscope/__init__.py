@@ -1,58 +1,21 @@
 """
-webscope — Polyscope-style framework for Three.js GUI apps.
+Deprecated name of :mod:`kayviz.runtime` (renamed in kayviz 0.3).
 
-Public API:
-    Scene           — geometry builder context manager
-    GUIApp          — base class for app implementations
-    ScriptApp       — always-registered broadcast app for the scripting API
-    CallbackApp     — auto-panel app driven by a Python callback function
-    register_app    — register an app with the framework
-    mount_all       — mount all registered apps onto a FastAPI instance
-    gui_state       — class decorator for state dataclasses
-    slider          — widget helper: float slider
-    int_slider      — widget helper: integer slider
-    dropdown        — widget helper: dropdown/select
-    checkbox        — widget helper: boolean checkbox
-    text_field      — widget helper: text input
-    to_json         — extract widget schema from a @gui_state class
-    apply_client_state — apply a client payload dict to a state instance
-    script          — Polyscope-style scripting module (import as ws)
-    imgui           — Polyscope-style widget helpers for use inside callbacks
+``import kayviz.webscope`` and ``from kayviz.webscope.<module> import ...`` keep
+working: every submodule is the same module object as in ``kayviz.runtime``.
 """
 
-from .scene import Scene
-from .app import GUIApp
-from .script_app import ScriptApp
-from .callback_app import CallbackApp
-from .registry import register_app, mount_all
-from .state_schema import (
-    gui_state,
-    slider,
-    int_slider,
-    dropdown,
-    checkbox,
-    text_field,
-    to_json,
-    apply_client_state,
-)
-from . import script
-from . import imgui
+import importlib
+import sys
+import warnings
 
-__all__ = [
-    "Scene",
-    "GUIApp",
-    "ScriptApp",
-    "CallbackApp",
-    "register_app",
-    "mount_all",
-    "gui_state",
-    "slider",
-    "int_slider",
-    "dropdown",
-    "checkbox",
-    "text_field",
-    "to_json",
-    "apply_client_state",
-    "script",
-    "imgui",
-]
+from kayviz.runtime import *          # noqa: F401,F403
+from kayviz.runtime import __all__    # noqa: F401
+
+warnings.warn("kayviz.webscope was renamed kayviz.runtime", DeprecationWarning, stacklevel=2)
+
+for _name in ("app", "broadcast_mixin", "callback_app", "imgui", "registry", "scene",
+              "script", "script_app", "state_schema", "wire"):
+    _module = importlib.import_module(f"kayviz.runtime.{_name}")
+    sys.modules[f"{__name__}.{_name}"] = _module
+    globals()[_name] = _module

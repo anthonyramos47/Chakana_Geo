@@ -1,5 +1,5 @@
 """
-Unit tests for server/webscope/script_app.py.
+Unit tests for server/runtime/script_app.py.
 
 Tests the ScriptApp scene buffer, broadcast logic, and extra routes
 without starting a real HTTP server (uses FastAPI's TestClient and
@@ -13,7 +13,7 @@ import asyncio
 import pytest
 import numpy as np
 
-from kayviz.webscope.script_app import ScriptApp
+from kayviz.runtime.script_app import ScriptApp
 from kayviz import serializers as ser
 
 

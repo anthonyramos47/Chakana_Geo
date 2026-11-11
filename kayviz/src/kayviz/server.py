@@ -31,8 +31,8 @@ from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from .security import LocalOnlyMiddleware, is_loopback
-from .webscope.registry import register_app, mount_all, get_app, app_names
-from .webscope.script_app import ScriptApp
+from .runtime.registry import register_app, mount_all, get_app, app_names
+from .runtime.script_app import ScriptApp
 
 STATIC_DIR = Path(__file__).parent / "static"
 
@@ -78,12 +78,12 @@ def create_app(apps=(), shared: bool = False, default_app: str | None = None,
     async def lifespan(_app):
         # Hand the serving loop to the scripting API so kayviz.register_* in
         # this process is delivered directly instead of over HTTP to itself.
-        from .webscope import script as _script
+        from .runtime import script as _script
         _script._bind_loop(asyncio.get_running_loop())
         yield
         _script._bind_loop(None)
         _script._on_server_stopped()
-        from .webscope.registry import unmount
+        from .runtime.registry import unmount
         unmount(_app)
 
     fastapi_app = FastAPI(title="kayviz", lifespan=lifespan)
@@ -99,7 +99,7 @@ def create_app(apps=(), shared: bool = False, default_app: str | None = None,
         names = app_names()
         user_apps = [n for n in names if n != "script"]
         default = fastapi_app.state.default_app or (user_apps[-1] if user_apps else "script")
-        from .webscope import script as _script
+        from .runtime import script as _script
         return {"apps": names, "default": default, "shared": shared, "instance": instance,
                 "up": _script._up}
 
@@ -120,7 +120,7 @@ def create_app(apps=(), shared: bool = False, default_app: str | None = None,
     @fastapi_app.get("/")
     def root():
         # the page reads the up axis synchronously, before it builds the camera
-        from .webscope import script as _script
+        from .runtime import script as _script
         html = (STATIC_DIR / "index.html").read_text().replace("__KAYVIZ_UP__", _script._up)
         return HTMLResponse(html, headers={"Cache-Control": "no-store"})
 

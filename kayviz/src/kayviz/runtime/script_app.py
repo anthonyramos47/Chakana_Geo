@@ -7,7 +7,7 @@ it immediately via WebSocket broadcast. Reloading the browser replays the
 current buffer so the scene is never lost.
 
 Extra HTTP routes (beyond the standard /schema, /load, /ws):
-    GET  /api/script/ping           — liveness check for ws.init()
+    GET  /api/script/ping           — liveness check for kv.init()
     POST /api/script/push           — push objects or clear
     GET  /api/script/wait?timeout=N — long-poll until all WS clients disconnect
     POST /api/script/remove         — remove one named object

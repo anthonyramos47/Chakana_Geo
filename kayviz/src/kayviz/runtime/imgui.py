@@ -1,5 +1,5 @@
 """
-kayviz.webscope.imgui — Polyscope-style widget helpers for set_user_callback.
+kayviz.runtime.imgui — Polyscope-style widget helpers for set_user_callback.
 
 Two execution modes, driven by a thread-local context:
 
@@ -18,7 +18,7 @@ Two execution modes, driven by a thread-local context:
 
 Usage inside a user callback:
 
-    from kayviz.webscope import imgui
+    from kayviz.runtime import imgui
 
     def my_gui():
         changed, val = imgui.slider_float("Alpha", state, "alpha", 0.0, 1.0)

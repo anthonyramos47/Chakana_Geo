@@ -2,7 +2,7 @@
 App registry + router factory.
 
 Usage:
-    from kayviz.webscope import register_app, mount_all
+    from kayviz.runtime import register_app, mount_all
 
     register_app(MyApp())
     mount_all(fastapi_app)

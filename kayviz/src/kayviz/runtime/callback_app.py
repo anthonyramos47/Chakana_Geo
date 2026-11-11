@@ -1,7 +1,7 @@
 """
 CallbackApp — GUIApp that drives a user-supplied Python callback.
 
-The user registers a callback with ws.set_user_callback(fn):
+The user registers a callback with kv.set_user_callback(fn):
 
     def gui():
         with imgui.header("Controls"):
@@ -9,14 +9,14 @@ The user registers a callback with ws.set_user_callback(fn):
         if imgui.button("Run"):
             push_result()
 
-    ws.set_user_callback(gui)
+    kv.set_user_callback(gui)
 
 CallbackApp:
   1. Runs fn once in schema mode to capture the widget layout.
   2. Sends the schema to the browser so AutoCallbackPanel can render it.
   3. On every "_callback" action from the browser, re-runs fn in live mode
      so the right widget returns True / (True, new_val) and the callback
-     body executes its side effects (ws.register_surface_mesh etc.).
+     body executes its side effects (kv.register_surface_mesh etc.).
 
 Geometry pushed inside the callback is routed through the broadcast buffer
 (BroadcastMixin) so the scene survives browser reloads.
@@ -37,7 +37,7 @@ from .broadcast_mixin import BroadcastMixin
 from .wire import send, encode_async
 from . import registry as _registry
 from .state_schema import gui_state
-from kayviz.webscope import imgui as _imgui
+from kayviz.runtime import imgui as _imgui
 
 
 def _make_empty_state_cls(name: str):
@@ -293,7 +293,7 @@ class CallbackApp(BroadcastMixin, GUIApp):
 
 class _CallbackPushCapture:
     """
-    Temporarily redirects ws.register_surface_mesh / push_objects calls made
+    Temporarily redirects kv.register_surface_mesh / push_objects calls made
     inside the callback to a local list so CallbackApp can buffer + broadcast
     them rather than sending to the ScriptApp channel.
     """
@@ -304,11 +304,11 @@ class _CallbackPushCapture:
         self._orig_push = None
 
     def __enter__(self):
-        from kayviz.webscope import script as _script
+        from kayviz.runtime import script as _script
         self._orig_push = _script._push_sink()
         _script._set_push_sink(self._sink.extend)
         return self
 
     def __exit__(self, *_):
-        from kayviz.webscope import script as _script
+        from kayviz.runtime import script as _script
         _script._set_push_sink(self._orig_push)

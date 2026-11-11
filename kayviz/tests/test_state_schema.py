@@ -1,5 +1,5 @@
 """
-Unit tests for server/webscope/state_schema.py.
+Unit tests for server/runtime/state_schema.py.
 
 Tests widget annotation helpers, schema extraction (to_json),
 and client-state application (apply_client_state).
@@ -11,7 +11,7 @@ Run:
 import pytest
 from dataclasses import dataclass, field
 
-from kayviz.webscope.state_schema import (
+from kayviz.runtime.state_schema import (
     gui_state, slider, int_slider, dropdown, checkbox, text_field,
     to_json, apply_client_state,
 )

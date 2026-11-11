@@ -1,11 +1,11 @@
-"""Binary message format (kayviz.webscope.wire) and the array-based serializers."""
+"""Binary message format (kayviz.runtime.wire) and the array-based serializers."""
 
 import json
 
 import numpy as np
 
 from kayviz import serializers as ser
-from kayviz.webscope.wire import decode, encode, jsonable
+from kayviz.runtime.wire import decode, encode, jsonable
 
 
 def test_message_without_arrays_is_json_text():

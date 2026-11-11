@@ -268,7 +268,7 @@ Re-registering a structure replaces it with its quantities, as `kv.remove` drops
 
 Object dicts in `"objects"` (built by `kayviz.serializers`). Arrays are numpy float32 / int32
 (always copies of the caller's arrays). On the WebSocket a message with arrays is one
-binary frame (JSON header + raw arrays, see `kayviz/webscope/wire.py`); over HTTP they
+binary frame (JSON header + raw arrays, see `kayviz/runtime/wire.py`); over HTTP they
 are lists (`wire.jsonable`).
 
 | `"type"` | Fields |

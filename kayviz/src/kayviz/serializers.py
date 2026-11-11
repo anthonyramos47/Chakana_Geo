@@ -2,7 +2,7 @@
 Generic geometry serializers for kayviz.
 
 Each function returns a plain dict that the WebSocket sends to the browser; its
-arrays are numpy float32 / int32 and travel as binary (kayviz.webscope.wire).
+arrays are numpy float32 / int32 and travel as binary (kayviz.runtime.wire).
 The browser's viewer.js dispatches on obj.type to the correct Three.js call.
 
 Everything here depends on numpy only and wraps arrays the caller already has;
@@ -207,7 +207,7 @@ def surface_mesh(name: str, vertices, faces, color=(0.8, 0.8, 0.8),
     meshes.
 
     Arrays are numpy float32 / int32 (sent to the browser as binary, see
-    kayviz.webscope.wire); ``kayviz.webscope.wire.jsonable`` turns them into lists.
+    kayviz.runtime.wire); ``kayviz.runtime.wire.jsonable`` turns them into lists.
     """
     verts = _points(vertices, name)
     F = _polygons(faces, name, len(verts) // 3)

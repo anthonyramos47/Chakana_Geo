@@ -30,7 +30,7 @@ Building blocks:
 
 __version__ = "0.3.0"
 
-from .webscope.script import (
+from .runtime.script import (
     init,
     url,
     show,
@@ -58,7 +58,7 @@ from .webscope.script import (
     FITTED_VIEWS,
     TIGHT_VIEWS,
 )
-from .webscope import (
+from .runtime import (
     Scene,
     GUIApp,
     ScriptApp,
@@ -73,8 +73,8 @@ from .webscope import (
     to_json,
     apply_client_state,
 )
-from .webscope import script
-from .webscope import imgui
+from .runtime import script
+from .runtime import imgui
 from . import serializers
 
 __all__ = [

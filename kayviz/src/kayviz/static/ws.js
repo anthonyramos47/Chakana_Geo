@@ -36,7 +36,7 @@ async function checkServerInstance() {
 
 import { api } from './urls.js';
 
-// ── Binary frames (kayviz/webscope/wire.py) ───────────────────────────────────
+// ── Binary frames (kayviz/runtime/wire.py) ───────────────────────────────────
 // uint32 header length | JSON header | pad to 8 | arrays. In the header every array
 // is {"__b": offset, "t": "f32"|"i32"|"u32", "n": length}, revived here as a typed
 // array that owns its memory (a copy, so the frame buffer can be freed).

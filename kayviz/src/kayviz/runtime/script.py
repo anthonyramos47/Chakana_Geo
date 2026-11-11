@@ -423,7 +423,7 @@ def get_camera():
     ``distance``, or None if no capture has run yet.  Take a screenshot first
     (even a tiny one) to populate it:
 
-        ws.screenshot_views(width=16, height=16)
+        kv.screenshot_views(width=16, height=16)
         print(ws.get_camera())
     """
     return _last_camera

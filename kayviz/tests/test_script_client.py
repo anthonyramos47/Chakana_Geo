@@ -1,5 +1,5 @@
 """
-Integration tests for server/webscope/script.py (the client API).
+Integration tests for server/runtime/script.py (the client API).
 
 These tests spin up a real FastAPI TestClient so they exercise the full
 HTTP stack without needing a running uvicorn process.
@@ -17,15 +17,15 @@ from fastapi.testclient import TestClient
 
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
-from kayviz.webscope import register_app, mount_all
-from kayviz.webscope.script_app import ScriptApp
+from kayviz.runtime import register_app, mount_all
+from kayviz.runtime.script_app import ScriptApp
 
 _script_app = ScriptApp()
 
 def _make_test_fastapi():
     app = FastAPI()
     # Re-use the same ScriptApp instance so tests can inspect its buffer
-    from kayviz.webscope import registry as reg
+    from kayviz.runtime import registry as reg
     reg._apps.clear()
     reg._apps["script"] = _script_app
     mount_all(app)
@@ -36,7 +36,7 @@ client   = TestClient(_fastapi, raise_server_exceptions=True)
 
 # Serializer dicts carry numpy arrays; over HTTP (attach mode) kayviz sends them
 # through wire.jsonable, so the stand-in client does the same.
-from kayviz.webscope.wire import jsonable
+from kayviz.runtime.wire import jsonable
 _raw_post = client.post
 client.post = lambda url, json=None, **kw: _raw_post(
     url, json=None if json is None else jsonable(json), **kw)
