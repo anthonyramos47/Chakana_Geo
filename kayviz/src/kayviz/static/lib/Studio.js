@@ -138,6 +138,7 @@ export class Studio {
         environment: s.environment, envIntensity: s.environmentIntensity,
         toneMapping: r.toneMapping, shadowType: r.shadowMap.type,
         gridVisible: this.grid.visible, castShadow: k.castShadow,
+        shadowMapSize: k.shadow.mapSize.clone(),
         keyIntensity: k.intensity, ambientIntensity: this.ambient?.intensity,
       };
       // Studio lighting: flat ambient light washes the shadows out, so the environment map
@@ -150,7 +151,8 @@ export class Studio {
       r.shadowMap.type = THREE.VSMShadowMap;
       this.grid.visible = false;
       k.castShadow = true;
-      k.shadow.mapSize.set(4096, 4096);
+      // 2048: a VSM map is two RGBA half-float targets, 4096² cost ~270 MB of GPU memory
+      k.shadow.mapSize.set(2048, 2048);
       k.shadow.radius = 8;
       k.shadow.blurSamples = 24;
       s.add(k.target);
@@ -172,6 +174,7 @@ export class Studio {
       k.target.updateMatrixWorld();
       this.floor.visible = false;
       this.enabled = false;
+      this._releaseGPU(sv.shadowMapSize);
     }
     r.shadowMap.needsUpdate = true;
     // Shadow-map type and tone mapping are baked into compiled programs.
@@ -238,6 +241,23 @@ export class Studio {
     u.thickness.value = 2 * r;
   }
 
+  /**
+   * Free the studio's GPU buffers (~1 GB at DPR 2: multisampled half-float composer
+   * targets, GTAO targets, VSM shadow maps). On Apple silicon this is system RAM.
+   * three.js reallocates the composer targets on the next studio frame.
+   */
+  _releaseGPU(shadowMapSize) {
+    this.composer.renderTarget1.dispose();
+    this.composer.renderTarget2.dispose();
+    this.gtao.normalRenderTarget.dispose();
+    this.gtao.gtaoRenderTarget.dispose();
+    this.gtao.pdRenderTarget.dispose();
+    const sh = this.keyLight.shadow;
+    sh.map?.dispose();     sh.map = null;       // rebuilt by the renderer when needed
+    sh.mapPass?.dispose(); sh.mapPass = null;
+    sh.mapSize.copy(shadowMapSize);
+  }
+
   _syncSize() {
     const r = this.renderer;
     r.getSize(this._size);
@@ -255,7 +275,7 @@ export class Studio {
     this.scene.traverse(o => {
       if (!o.isMesh || o === this.floor) return;
       const m = Array.isArray(o.material) ? o.material[0] : o.material;
-      o.castShadow = !!m && !(m.transparent && m.opacity < 0.5);
+      o.castShadow = !!m && !m.userData.glass && !(m.transparent && m.opacity < 0.5);
       o.receiveShadow = !!m && !m.transparent;
     });
   }
@@ -274,7 +294,7 @@ export class Studio {
         hide.push(o); return;
       }
       const m = o.material && (Array.isArray(o.material) ? o.material[0] : o.material);
-      if (o.isMesh && m && m.transparent && m.opacity < 1) hide.push(o);
+      if (o.isMesh && m && m.transparent && (m.opacity < 1 || m.userData.glass)) hide.push(o);
     });
     for (const o of hide) o.visible = false;
   }

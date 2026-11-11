@@ -60,8 +60,8 @@ def push_all():
                              color=(0.15, 0.15, 0.17))
     kv.register_surface_mesh("Sphere on torus", *sphere(np.array([-0.6, 0.48, 0.0]), 0.2),
                              color=(0.30, 0.50, 0.85), show_edges=True)
-    kv.register_surface_mesh("Translucent shell", *sphere(np.array([0.0, 0.5, 0.75]), 0.4),
-                             color=(0.55, 0.25, 0.75), opacity=0.4)
+    kv.register_surface_mesh("Glass shell", *sphere(np.array([0.0, 0.5, 0.75]), 0.4),
+                             color=(0.55, 0.25, 0.75), material="glass")
     t = np.linspace(0, 2 * np.pi, 200, endpoint=False)
     curve = np.stack([1.2 * np.cos(t), 0.9 + 0.15 * np.sin(3 * t), 0.8 * np.sin(t)], 1)
     kv.register_curve_network("Curve", curve, [[i, (i + 1) % 200] for i in range(200)],

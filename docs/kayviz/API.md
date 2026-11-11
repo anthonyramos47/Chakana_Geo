@@ -42,6 +42,7 @@ that registered its own apps always starts its own viewer.
 
 ```python
 kv.register_surface_mesh("Mesh", V, F, color=(0.5, 0.5, 0.5), opacity=1.0, show_edges=True)
+kv.register_surface_mesh("Shell", V, F, material="glass")   # pin a shader for this mesh
 kv.register_curve_network("Edges", P, E, color=(0.8, 0.2, 0.2), radius=0.002)
 kv.register_point_cloud("Points", X, color=(0.2, 0.5, 0.8), radius=0.01)
 kv.register_vector_field("Normals", origins, vectors, length=0.05, color=(0.2, 0.8, 0.4))
@@ -84,7 +85,7 @@ return {"action": "scene_update", "objects": s.snapshot()}
 
 | Method | Polyscope equivalent |
 |---|---|
-| `register_surface_mesh(name, V, F, color, face_size, opacity, show_edges, edge_color)` | `ps.register_surface_mesh` |
+| `register_surface_mesh(name, V, F, color, face_size, opacity, show_edges, edge_color, material)` | `ps.register_surface_mesh` |
 | `register_curve_network(name, P, E, color, radius)` — `radius=0` flat lines, `>0` tubes | `ps.register_curve_network` |
 | `register_point_cloud(name, X, color, radius)` | `ps.register_point_cloud` |
 | `register_vector_field(name, origins, vectors, length, radius, color)` | — |

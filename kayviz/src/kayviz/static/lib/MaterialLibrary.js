@@ -15,6 +15,7 @@
  *   'depth'      MeshDepthMaterial    — depth visualisation
  *   'toon'       MeshToonMaterial     — cel-shaded cartoon look
  *   'physical'   MeshPhysicalMaterial — PBR (metalness / roughness / clearcoat), lit by scene.environment
+ *   'glass'      MeshPhysicalMaterial — thin glass: environment reflection, Fresnel-weighted alpha
  *
  * Custom GLSL shaders
  * ───────────────────
@@ -125,6 +126,10 @@ const _BUILTINS = {
     clearcoatRoughness: 0.15,
     side: 'double',
   },
+  glass: {                    // see _glassAlpha: no transmission pass, just blending
+    type: 'glass',
+    core: 0.12,               // alpha seen head-on; grazing angles go to 1
+  },
   blinn_phong: {
     type: 'shader',
     vertexShader:   _DEFAULT_VERT,
@@ -136,6 +141,20 @@ const _BUILTINS = {
     side: 'double',
   },
 };
+
+/** Make the alpha of `m` follow a Schlick-style Fresnel term: `core` head-on, 1 at grazing. */
+function _glassAlpha(m, core) {
+  m.onBeforeCompile = (shader) => {
+    shader.uniforms.uGlassCore = { value: core };
+    shader.fragmentShader = shader.fragmentShader
+      .replace('void main() {', 'uniform float uGlassCore;\nvoid main() {')
+      .replace('#include <opaque_fragment>', `
+  float glassFresnel = pow(1.0 - abs(dot(normalize(normal), normalize(vViewPosition))), 3.0);
+  diffuseColor.a = clamp(opacity * mix(uGlassCore, 1.0, glassFresnel), 0.0, 1.0);
+  #include <opaque_fragment>`);
+  };
+  m.customProgramCacheKey = () => 'kayviz-glass';
+}
 
 // ── MaterialLibrary ─────────────────────────────────────────────────────────
 
@@ -219,6 +238,24 @@ export class MaterialLibrary {
           clearcoatRoughness: def.clearcoatRoughness ?? 0.0,
           side, transparent, opacity, depthWrite: !transparent,
         });
+
+      case 'glass': {
+        // Thin glass, the trick AI Calc's "Glass" uses: no refraction of the scene
+        // (MeshPhysicalMaterial.transmission re-renders every opaque object into a
+        // target each frame).  The surface only reflects scene.environment and is
+        // alpha-blended, nearly clear head-on and opaque at grazing angles (Fresnel).
+        const m = new THREE.MeshPhysicalMaterial({
+          // ior 2 and a clearcoat layer exaggerate the reflection so the softbox
+          // panels read on the surface (plain ior 1.5 reflects only 4% head-on)
+          color: col, metalness: 0.0, roughness: 0.0, ior: 2.0,
+          clearcoat: 1.0, clearcoatRoughness: 0.0,
+          envMapIntensity: 2.5, side, transparent: true, depthWrite: false,
+        });
+        m.opacity = opacity;
+        m.userData.glass = true;
+        _glassAlpha(m, def.core ?? 0.12);
+        return m;
+      }
 
       case 'toon':
         return new THREE.MeshToonMaterial({ color: col, side, transparent, opacity, depthWrite: !transparent });

@@ -260,6 +260,77 @@ try { _savedStudio = localStorage.getItem('kayviz.studio'); } catch (_) {}
 setStudio(_savedStudio === '1');
 window.__setStudio = setStudio;
 
+// ── Save picture (camera button) ────────────────────────────────────────────
+// Renders one frame at `scale` × the screen resolution and downloads it as PNG.
+// background 'viewer' keeps what is on screen; 'transparent' drops the backdrop
+// and the grid (the studio floor shadow stays, half-transparent).
+// The picture is capped at SAVE_MAX_PIXELS: GPU memory grows with the pixel count
+// (studio ≈ 200 bytes/pixel: 16.7 Mpx measured +3.3 GB), and on Apple silicon it is
+// system RAM; an uncapped 4× studio save (~66 Mpx) froze a 16 GB Mac.
+const SAVE_MAX_PIXELS = 12e6;   // ≈ 4600 × 2600
+function savePicture({ background = 'viewer', scale = 2 } = {}) {
+  const pr = renderer.getPixelRatio(), size = renderer.getSize(new THREE.Vector2());
+  const maxSide = renderer.capabilities.maxTextureSize;
+  const s = Math.min(scale, maxSide / (Math.max(size.x, size.y) * pr),
+                     Math.sqrt(SAVE_MAX_PIXELS / (size.x * size.y)) / pr);
+  const oldBg = scene.background, oldGrid = grid.visible;
+  const oldClear = renderer.getClearColor(new THREE.Color()), oldAlpha = renderer.getClearAlpha();
+  renderer.setPixelRatio(pr * s);
+  if (background === 'transparent') {
+    scene.background = null;
+    renderer.setClearColor(0x000000, 0);
+    grid.visible = false;
+  }
+  try {
+    window.__renderFrame();
+    // toBlob snapshots the canvas now; the restore below does not affect it
+    renderer.domElement.toBlob((blob) => {
+      const a = document.createElement('a');
+      const app = new URLSearchParams(location.search).get('app') ?? 'kayviz';
+      const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
+      a.href = URL.createObjectURL(blob);
+      a.download = `${app}_${stamp}.png`;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+    }, 'image/png');
+  } finally {
+    scene.background = oldBg;
+    grid.visible = oldGrid;
+    renderer.setClearColor(oldClear, oldAlpha);
+    renderer.setPixelRatio(pr);
+  }
+}
+window.__savePicture = savePicture;
+
+const _saveButton = _bgButton.cloneNode();
+_saveButton.style.left = '496px';
+_saveButton.textContent = '📷';
+_saveButton.title = 'Save picture';
+const _saveMenu = document.createElement('div');
+Object.assign(_saveMenu.style, {
+  position: 'fixed', bottom: '52px', left: '496px', display: 'none', zIndex: '1002',
+  background: '#2a2a2a', border: '1px solid #444', borderRadius: '6px', padding: '8px',
+  font: '12px sans-serif', color: '#ddd', flexDirection: 'column', gap: '6px',
+});
+const _saveScale = document.createElement('select');
+for (const k of [1, 2]) _saveScale.add(new Option(`${k}× resolution`, k, k === 2, k === 2));
+_saveMenu.appendChild(_saveScale);
+for (const [bg, label] of [['viewer', 'Current background'], ['transparent', 'Empty background']]) {
+  const b = document.createElement('button');
+  b.textContent = label;
+  Object.assign(b.style, { cursor: 'pointer', background: '#3a3a3a', color: '#eee',
+                           border: '1px solid #555', borderRadius: '4px', padding: '4px 8px' });
+  b.addEventListener('click', () => {
+    _saveMenu.style.display = 'none';
+    savePicture({ background: bg, scale: Number(_saveScale.value) });
+  });
+  _saveMenu.appendChild(b);
+}
+_saveButton.addEventListener('click', () => {
+  _saveMenu.style.display = _saveMenu.style.display === 'none' ? 'flex' : 'none';
+});
+document.body.append(_saveButton, _saveMenu);
+
 // ── Render loop ───────────────────────────────────────────────────────────────
 function animate() {
   requestAnimationFrame(animate);

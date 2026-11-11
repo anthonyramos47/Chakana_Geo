@@ -18,8 +18,10 @@ import numpy as np
 
 def surface_mesh(name: str, vertices, faces, color=(0.8, 0.8, 0.8),
                  face_size=None, opacity=1.0, show_edges=False,
-                 edge_color=(0.8, 0.8, 0.8), edge_radius: float = 0.0, show: bool = True):
+                 edge_color=(0.8, 0.8, 0.8), edge_radius: float = 0.0, show: bool = True,
+                 material=None):
     """Mirrors ps.register_surface_mesh(). show=False registers the object hidden (its checkbox in the scene panel unticked).
+    material (e.g. "glass") pins this mesh's shader; None follows the global Shader dropdown.
 
     Faces may be uniform (all same length) or ragged (polygons with different
     vertex counts).  Ragged faces are fan-triangulated for rendering.
@@ -85,6 +87,8 @@ def surface_mesh(name: str, vertices, faces, color=(0.8, 0.8, 0.8),
         "show_edges":      bool(show_edges),
         "show":            bool(show),
     }
+    if material is not None:
+        mesh_dict["material"] = str(material)
 
     if show_edges:
         return [mesh_dict, edges_dict]

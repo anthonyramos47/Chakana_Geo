@@ -125,17 +125,44 @@ is hidden. Saved in `localStorage['kayviz.studio']`; from code `window.__setStud
 - AO radius, shadow frustum and floor height are refitted to the bounding box of the
   visible objects when objects are added/removed and every 30 frames. Lighting → Studio has sliders for AO
   strength, AO radius (fraction of the scene half-diagonal) and shadow darkness.
-- Translucent meshes (opacity < 1), lines, points and the floor are hidden during the
+- Translucent meshes (opacity < 1, or the glass material), lines, points and the floor are hidden during the
   AO pass, so a translucent shell does not darken what is inside it. Meshes with
-  opacity < 0.5 cast no shadow; opaque meshes also receive shadows.
+  opacity < 0.5 and glass meshes cast no shadow; opaque meshes also receive shadows.
 - The scene background is removed during the AO pass: GTAO renders its depth/normal
   buffer with `scene.overrideMaterial`, which also catches the plane three.js uses
   to draw a texture background, so the backdrop would show up as a dark quad.
+- GPU memory: about +0.7 GB at DPR 2 (multisampled half-float composer targets,
+  GTAO targets, 2048² VSM shadow maps); a capture at 16.7 Mpx measured +3.3 GB.
+  On Apple silicon that is system RAM, so switching studio off disposes all of
+  it (`Studio._releaseGPU`), and saved pictures are capped at 12 Mpx — an
+  uncapped 4× studio save (~66 Mpx) froze a 16 GB Mac.
 - Costs about 2.5x a plain frame (≈34 ms vs 13 ms at DPR 2 on the test machine), so
   it is meant for figures and screenshots; `ws.screenshot()` captures through it
   (`window.__renderFrame`).
 - Recipe adapted from the MIT-licensed teardown project
   (github.com/elvarofficial/teardown, `sims/v8-shared/stage.js`).
+
+### Glass material
+
+`glass` is thin glass without refraction, the approach AI Calc
+(themathematics.app) uses for its "Glass" surface: the mesh is alpha-blended,
+reflects `scene.environment`, and its alpha follows a Fresnel term (`core` = 0.12
+head-on, 1 at grazing angles; `opacity` scales it). It costs no extra render pass,
+whereas `MeshPhysicalMaterial.transmission` renders every opaque object a second
+time into a texture each frame. ior 2 and a clearcoat layer exaggerate the
+reflection so the softbox panels read on the surface. From Python pin it per mesh with
+`kv.register_surface_mesh(name, V, F, material="glass")`; pinned meshes ignore the
+global Shader dropdown.
+
+### Save picture
+
+The camera button (right of the bulb) opens a menu: resolution (1× or 2× the
+screen, capped at 12 Mpx and the GPU's max texture size) and *Current background* or *Empty
+background*. It renders one frame through `window.__renderFrame` (so studio mode
+is included) and downloads `<app>_<timestamp>.png`. Empty background clears to
+alpha 0 and hides the grid; the studio floor shadow stays, half-transparent.
+CSS labels (vertex/face indices) are not part of the picture. From code:
+`window.__savePicture({ background: 'transparent', scale: 2 })`.
 
 ### Scalar quantities
 
@@ -201,6 +228,7 @@ const viewer = new Viewer(scene, myLib);
 | `phong`       | MeshPhongMaterial        | Diffuse + specular highlights.     |
 | `blinn_phong` | ShaderMaterial           | Custom GLSL Blinn-Phong, two lights|
 | `physical`    | MeshPhysicalMaterial     | PBR metalness/roughness            |
+| `glass`       | MeshPhysicalMaterial     | Thin glass, Fresnel alpha (below)  |
 | `toon`        | MeshToonMaterial         | Cel-shaded cartoon                 |
 | `wireframe`   | MeshBasicMaterial        | Wireframe overlay                  |
 | `flat`        | MeshBasicMaterial        | Unlit flat color                   |

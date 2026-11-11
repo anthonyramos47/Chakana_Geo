@@ -119,16 +119,18 @@ def register_surface_mesh(name: str, vertices, faces,
                           color=(0.8, 0.8, 0.8), opacity: float = 1.0,
                           show_edges: bool = False,
                           edge_color=(0.8, 0.8, 0.8),
-                          edge_radius: float = 0.0, show: bool = True) -> None:
+                          edge_radius: float = 0.0, show: bool = True,
+                          material=None) -> None:
     """Mirrors ps.register_surface_mesh(). Pass show_edges=True to overlay the wireframe,
     show=False to register it hidden (tick it in the scene panel to show it).
 
     Edges are always drawn as thin tubes (so other objects occlude them); edge_radius=0
-    picks 3% of the median edge length. The shader is global (scene panel "Shader")."""
+    picks 3% of the median edge length. The shader is global (scene panel "Shader") unless
+    material names one for this mesh, e.g. material="glass"."""
     result = ser.surface_mesh(name, vertices, faces,
                               color=color, opacity=opacity,
                               show_edges=show_edges, edge_color=edge_color,
-                              edge_radius=edge_radius, show=show)
+                              edge_radius=edge_radius, show=show, material=material)
     if isinstance(result, list):
         push_objects(result)
     else:

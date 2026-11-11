@@ -71,7 +71,7 @@ App kinds: `ScriptApp` (always registered; buffer + broadcast of pushed objects,
 - `app_loader.js` — resolves the app, fetches `/api/<app>/schema`, opens the app WS plus the script WS, loads the panel, POSTs `/api/<app>/load`
 - `viewer.js` — `Viewer`: object registry; `applyMessage(data)` dispatches on `type`; emits `viewer-changed`
 - `ws.js` — `WSClient` with reconnect/backoff
-- `gui/panel.js` (base), `gui/auto_panel.js`, `gui/auto_callback_panel.js`, `gui/scene_panel.js` (object list, colour/opacity/shader, "show edges"), `gui/energy_panel.js`, `lib/MaterialLibrary.js`, `lib/Studio.js` (studio render mode: GTAO + soft floor shadow + backdrop, toggled by the bulb button; see docs/kayviz/FRONTEND_API.md)
+- `gui/panel.js` (base), `gui/auto_panel.js`, `gui/auto_callback_panel.js`, `gui/scene_panel.js` (object list, colour/opacity/shader, "show edges"), `gui/energy_panel.js`, `lib/MaterialLibrary.js`, `lib/Studio.js` (studio render mode: GTAO + soft floor shadow + backdrop, toggled by the bulb button; see docs/kayviz/FRONTEND_API.md); `main.js` also has the save-picture camera button (`window.__savePicture`)
 
 Three.js and lil-gui come from CDN via the import map in `index.html`.
 

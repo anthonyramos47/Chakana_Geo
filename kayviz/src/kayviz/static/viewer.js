@@ -42,14 +42,17 @@ export class Viewer {
                       color = [0.8, 0.8, 0.8], opacity = 1.0,
                       material = null) {
     this._remove(name);
-    material = material ?? this.material;
+    // a material named at registration (python material=...) is pinned: the global
+    // Shader dropdown leaves it alone
+    const pinned = !!material && this.matLib.has(material);
+    material = pinned ? material : this.material;
     const geo  = this._buildMeshGeo(vertices, faces, faceSize);
     const mat  = this.matLib.build(material, color, opacity);
     const mesh = new THREE.Mesh(geo, mat);
     mesh.name  = name;
     this.scene.add(mesh);
     this._objects.set(name, new SceneEntry('surface_mesh', mesh, {
-      color: [...color], opacity, material, visible: true,
+      color: [...color], opacity, material, pinned, visible: true,
       vertices, faces, faceSize,
       trisPerFace: null, nonIndexed: false,
       edgeVerts: null, edgeIdx: null,
@@ -125,8 +128,9 @@ export class Viewer {
     if (!e || e.type !== 'surface_mesh') return;
     e.opacity                    = t;
     e.mesh.material.opacity      = t;
-    e.mesh.material.transparent  = t < 1.0;
-    e.mesh.material.depthWrite   = t >= 1.0;   // translucent meshes must not hide what is behind them
+    const glass = !!e.mesh.material.userData.glass;   // glass always blends
+    e.mesh.material.transparent  = glass || t < 1.0;
+    e.mesh.material.depthWrite   = !glass && t >= 1.0;   // translucent meshes must not hide what is behind them
     e.mesh.material.needsUpdate  = true;
   }
 
@@ -206,7 +210,7 @@ export class Viewer {
     this.material = matName;
     try { localStorage.setItem('kayviz.material', matName); } catch (_) {}
     for (const [name, e] of this._objects) {
-      if (e.type !== 'surface_mesh') continue;
+      if (e.type !== 'surface_mesh' || e.opts.pinned) continue;
       this.matLib.applyTo(e.mesh, matName, e.color, e.opacity);
       e.opts.material = matName;
       if (e.mesh.geometry.hasAttribute('color')) e.mesh.material.vertexColors = true;
