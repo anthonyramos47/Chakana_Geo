@@ -17,6 +17,13 @@ import { LabelRenderer }  from './LabelRenderer.js';
 import { startScreenshotBridge } from './screenshot.js';
 import { Studio }         from './lib/Studio.js';
 
+// Up axis, written into the page by the server (kv.set_up_dir): "z" (default) or "y".
+const UP = document.querySelector('meta[name="kayviz-up"]')?.content === 'y' ? 'y' : 'z';
+window.__up = UP;
+const UP_VEC = UP === 'z' ? new THREE.Vector3(0, 0, 1) : new THREE.Vector3(0, 1, 0);
+/** (x, y, z) written y-up -> the viewer's axes (identity when y is up). */
+const fromYUp = (x, y, z) => (UP === 'z' ? new THREE.Vector3(x, -z, y) : new THREE.Vector3(x, y, z));
+
 // Catch unhandled JS errors and show them in the status bar
 window.addEventListener('error', e => {
   const el = document.getElementById('status');
@@ -52,6 +59,7 @@ scene.background = new THREE.Color(0x1a1a1a);
 window.__scene = scene;   // consumed by app_loader.js
 
 const grid = new THREE.GridHelper(4, 20, 0x333333, 0x333333);
+if (UP === 'z') grid.rotation.x = Math.PI / 2;      // GridHelper lies in the xz plane
 scene.add(grid);
 
 // ── Camera ────────────────────────────────────────────────────────────────────
@@ -61,7 +69,8 @@ const camera = new THREE.PerspectiveCamera(
   0.001,
   100,
 );
-camera.position.set(0, 1.5, 4);
+camera.up.copy(UP_VEC);                             // before OrbitControls reads it
+camera.position.copy(fromYUp(0, 1.5, 4));
 
 // ── Orbit controls ────────────────────────────────────────────────────────────
 const controls = new OrbitControls(camera, renderer.domElement);
@@ -74,8 +83,8 @@ controls.update();
 const ambient   = new THREE.AmbientLight(0xffffff, 0.5);
 const keyLight  = new THREE.DirectionalLight(0xffffff, 1.2);   // bumped for ACES curve
 const fillLight = new THREE.DirectionalLight(0xffffff, 0.5);   // bumped for ACES curve
-keyLight.position.set(4, 8, 6);
-fillLight.position.set(-4, 2, -4);
+keyLight.position.copy(fromYUp(4, 8, 6));
+fillLight.position.copy(fromYUp(-4, 2, -4));
 scene.add(ambient, keyLight, fillLight);
 
 // Environment map (procedural room, no texture download): only MeshStandard/MeshPhysical
@@ -83,12 +92,14 @@ scene.add(ambient, keyLight, fillLight);
 const pmrem = new THREE.PMREMGenerator(renderer);
 scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
 scene.environmentIntensity = 0.6;
+// The environment scenes (room, studio softbox) are built y-up; turn them for z-up.
+if (UP === 'z') scene.environmentRotation.x = Math.PI / 2;
 pmrem.dispose();
 
 window.__lights = { ambient, keyLight, fillLight, scene };   // consumed by app_loader.js
 
 // Studio render mode (AO, soft floor shadow, softbox environment); see lib/Studio.js.
-const studio = new Studio(renderer, scene, camera, { keyLight, ambient, grid });
+const studio = new Studio(renderer, scene, camera, { keyLight, ambient, grid, up: UP });
 window.__studio = studio;
 window.__lights.studio = studio;
 // One frame of the current mode; also used by the screenshot bridge.
@@ -334,6 +345,101 @@ _saveButton.addEventListener('click', () => {
 });
 document.body.append(_saveButton, _saveMenu);
 
+// ── Framing: fit the camera, clip planes and grid to the scene ────────────────
+// Scenes come in any unit (1e-3 to 1e3): nothing here assumes a size.
+function sceneBounds() {
+  const box = new THREE.Box3();
+  scene.traverseVisible(o => {
+    if (o === grid || o.isLight || o.userData.studioHelper) return;
+    if ((o.isMesh || o.isLine || o.isLineSegments || o.isPoints) && o.geometry) {
+      box.expandByObject(o);           // instanced points/arrows: all instances
+    }
+  });
+  if (box.isEmpty() || !Number.isFinite(box.min.x + box.max.x + box.min.y + box.max.y +
+                                        box.min.z + box.max.z)) return null;
+  const sphere = box.getBoundingSphere(new THREE.Sphere());
+  sphere.radius = Math.max(sphere.radius, 1e-9);
+  return { box, center: sphere.center, radius: sphere.radius };
+}
+let _bounds = null;                     // refreshed when the scene changes
+document.addEventListener('viewer-changed', () => { _bounds = sceneBounds(); _placeGrid(); });
+
+/** Grid under the scene, with a 1-2-5 spacing that suits its size. */
+function _placeGrid() {
+  if (!_bounds) return;
+  const R = _bounds.radius, step = 10 ** Math.floor(Math.log10(R / 5));
+  const cell = [1, 2, 5, 10].map(m => m * step).find(c => R / c <= 10) ?? 10 * step;
+  grid.scale.setScalar((cell * 20) / 4);          // GridHelper(4, 20): 20 cells of 0.2
+  const c = _bounds.center, lo = _bounds.box.min;
+  if (UP === 'z') grid.position.set(c.x, c.y, lo.z); else grid.position.set(c.x, lo.y, c.z);
+}
+
+/** Frame the scene: from the current direction, or from the default one (reset). */
+function fitView({ reset = false } = {}) {
+  _bounds = sceneBounds();
+  if (!_bounds) return;
+  _placeGrid();
+  const dir = reset ? fromYUp(0.55, 0.45, 0.7).normalize()
+                    : camera.position.clone().sub(controls.target).normalize();
+  const fov = THREE.MathUtils.degToRad(camera.fov);
+  const dist = _bounds.radius / Math.sin(Math.min(fov, fov * camera.aspect) / 2) * 1.05;
+  controls.target.copy(_bounds.center);
+  camera.position.copy(_bounds.center).addScaledVector(dir, dist);
+  if (reset) camera.up.copy(UP_VEC);
+  controls.update();
+  window.__invalidate?.(2);
+}
+window.__fitView = fitView;
+
+/** Clip planes from the distance to the scene (else large scenes get cut, tiny ones
+ *  lose depth precision). */
+function _updateClip() {
+  if (!_bounds) return;
+  const R = _bounds.radius, d = camera.position.distanceTo(_bounds.center);
+  const near = Math.max(d - 1.5 * R, (d + R) * 1e-4);
+  const far  = d + 1.5 * R;
+  if (Math.abs(camera.near - near) > 1e-3 * near || Math.abs(camera.far - far) > 1e-3 * far) {
+    camera.near = near; camera.far = far;
+    camera.updateProjectionMatrix();
+  }
+}
+
+// Fit once, when the first geometry arrives (re-registrations keep the user's view).
+let _fitted = false;
+document.addEventListener('viewer-changed', () => {
+  if (!_fitted && _bounds) { _fitted = true; fitView({ reset: true }); }
+});
+
+// Keys: F frames the scene, R resets the view (not while typing in a field).
+window.addEventListener('keydown', e => {
+  if (e.metaKey || e.ctrlKey || e.altKey) return;
+  const t = e.target;
+  if (t && (t.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(t.tagName))) return;
+  if (e.key === 'f' || e.key === 'F') fitView();
+  if (e.key === 'r' || e.key === 'R') fitView({ reset: true });
+});
+
+const _fitButton = _bgButton.cloneNode();
+_fitButton.style.left = '536px';
+_fitButton.textContent = '\u2922';
+_fitButton.title = 'Fit the scene (F); reset the view (R)';
+_fitButton.setAttribute('aria-label', 'Fit the scene');
+_fitButton.addEventListener('click', () => fitView({ reset: true }));
+document.body.appendChild(_fitButton);
+
+/** {action: "view"} from Python: kv.look_at / kv.reset_camera / kv.set_up_dir. */
+window.__applyView = (msg) => {
+  if (msg.up && msg.up !== UP) { location.reload(); return; }
+  if (msg.fit) fitView({ reset: true });
+  if (msg.camera) {
+    _fitted = true;
+    controls.target.fromArray(msg.camera.target);
+    camera.position.fromArray(msg.camera.position);
+    controls.update();
+    window.__invalidate?.(2);
+  }
+};
+
 // ── Toasts: errors the user must see (the status line is easy to miss) ──────
 const _toasts = document.createElement('div');
 Object.assign(_toasts.style, {
@@ -378,6 +484,7 @@ function animate() {
   if (controls.update()) _framesDue = Math.max(_framesDue, 1);   // true while moving/damping
   if (_framesDue <= 0) return;
   _framesDue--;
+  _updateClip();
   window.__renderFrame();
   _gizmo.draw(camera.quaternion);
   if (window.__viewer) labelRenderer.render(window.__viewer, camera);

@@ -675,3 +675,28 @@ def test_old_pages_without_the_button_flag_still_click_buttons():
         out["hits"] = len(hits)
     ''')
     assert out["hits"] == 1
+
+
+def test_camera_and_up_axis_reach_the_tabs():
+    out = _run('''
+        kv.init()
+        base = kv.url()
+        out["up_default"] = requests.get(base + "/api/_info").json()["up"]
+        out["page_up"] = 'content="z"' in requests.get(base + "/").text
+        with connect(base.replace("http", "ws") + "/api/script/ws") as ws:
+            kv.look_at((3, 4, 5), (0, 0, 1))
+            out["look"] = recv_until(ws, lambda m: m.get("action") == "view")["camera"]
+            kv.reset_camera()
+            out["fit"] = recv_until(ws, lambda m: m.get("action") == "view").get("fit")
+            kv.set_up_dir("y")
+            out["up_msg"] = recv_until(ws, lambda m: m.get("action") == "view").get("up")
+        out["up_after"] = requests.get(base + "/api/_info").json()["up"]
+        try:
+            kv.set_up_dir("x"); out["bad"] = None
+        except ValueError as e:
+            out["bad"] = str(e)
+    ''')
+    assert out["up_default"] == "z" and out["page_up"]
+    assert out["look"] == {"position": [3.0, 4.0, 5.0], "target": [0.0, 0.0, 1.0]}
+    assert out["fit"] is True and out["up_msg"] == "y" and out["up_after"] == "y"
+    assert "axis must be" in out["bad"]

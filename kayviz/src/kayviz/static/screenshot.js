@@ -45,13 +45,12 @@ function sceneBounds(THREE, scene, grid) {
   let found = false;
   scene.traverse((o) => {
     if (!o.visible) return;
-    if (o === grid || o.isGridHelper) return;
-    if (!(o.isMesh || o.isLine || o.isLineSegments || o.isPoints)) return;
-    const g = o.geometry;
-    if (!g) return;
-    if (!g.boundingBox) g.computeBoundingBox();
-    if (!g.boundingBox) return;
-    const b = g.boundingBox.clone().applyMatrix4(o.matrixWorld);
+    if (o === grid || o.isGridHelper || o.userData.studioHelper) return;
+    if (!(o.isMesh || o.isLine || o.isLineSegments || o.isPoints) || !o.geometry) return;
+    // expandByObject covers every instance of instanced points and arrows (the
+    // geometry's own box is one glyph at the origin)
+    const b = new THREE.Box3().expandByObject(o);
+    if (b.isEmpty()) return;
     if (!found) { box.copy(b); found = true; } else { box.union(b); }
   });
   if (!found) return null;
@@ -97,9 +96,12 @@ function renderView(THREE, renderer, scene, camera, bounds, view, width, height)
     camera.position.copy(target).add(offset);
     camera.lookAt(target);
   } else {
+    // dir without up is written y-up: turn it for a z-up viewer (window.__up)
+    const zUp = !view.up && window.__up === 'z';
     const dir = view.dir || [1, 1, 1];
-    const up  = view.up  || [0, 1, 0];
-    const d = new THREE.Vector3(dir[0], dir[1], dir[2]).normalize();
+    const up  = view.up  || (zUp ? [0, 0, 1] : [0, 1, 0]);
+    const d = zUp ? new THREE.Vector3(dir[0], -dir[2], dir[1]).normalize()
+                  : new THREE.Vector3(dir[0], dir[1], dir[2]).normalize();
     // Distance that fits the bounding sphere in the vertical FOV, with margin.
     const fov  = THREE.MathUtils.degToRad(camera.fov);
     const fit  = bounds.radius / Math.sin(Math.min(fov, fov * camera.aspect) * 0.5);

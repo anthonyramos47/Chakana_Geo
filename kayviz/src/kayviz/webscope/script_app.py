@@ -103,6 +103,14 @@ class ScriptApp(BroadcastMixin, GUIApp):
             await app.push(objects)
             return {"ok": True, "pushed": len(objects)}
 
+        @router.post("/view")
+        async def view(payload: dict):
+            from . import script as _script
+            if payload.get("up") in ("y", "z"):
+                _script._up = payload["up"]
+            await app._broadcast({"action": "view", **payload})
+            return {"ok": True}
+
         @router.post("/remove")
         async def remove(payload: dict):
             name = payload.get("name", "")

@@ -65,8 +65,9 @@ export class Viewer {
     return mesh;
   }
 
-  registerCurveNetwork(name, vertices, edges, color = [0.8, 0.2, 0.2], radius = 0.002) {
+  registerCurveNetwork(name, vertices, edges, color = [0.8, 0.2, 0.2], radius = null) {
     this._remove(name);
+    radius = radius ?? 0.0015 * this._size(vertices);     // relative: any unit works
     const obj = this._buildCurveObj(vertices, edges, color, radius);
     obj.name  = name;
     this.scene.add(obj);
@@ -78,22 +79,25 @@ export class Viewer {
     return obj;
   }
 
-  registerVectorField(name, origins, vectors, length = 0.05, radius = null, color = [0.2, 0.8, 0.4]) {
+  registerVectorField(name, origins, vectors, length = null, radius = null, color = [0.2, 0.8, 0.4],
+                      vectortype = 'standard') {
     this._remove(name);
+    length = length ?? 0.04 * this._size(origins);
     radius = radius ?? length * 0.04;
-    const mesh = this._buildArrowField(origins, vectors, length, radius, color);
+    const mesh = this._buildArrowField(origins, vectors, length, radius, color, vectortype);
     mesh.name  = name;
     this.scene.add(mesh);
     this._objects.set(name, new SceneEntry('vector_field', mesh, {
       color: [...color], opacity: 1.0, visible: true,
-      origins, vectors, length, radius,
+      origins, vectors, length, radius, vectortype,
     }));
     this._emit();
     return mesh;
   }
 
-  registerPointCloud(name, points, color = [0.2, 0.5, 0.8], radius = 0.0005) {
+  registerPointCloud(name, points, color = [0.2, 0.5, 0.8], radius = null) {
     this._remove(name);
+    radius = radius ?? 0.005 * this._size(points);         // relative: any unit works
     const pts = new Float32Array(points);
     const count = pts.length / 3;
     const obj = this._buildSphereInstances(pts, count, color, radius);
@@ -179,7 +183,8 @@ export class Viewer {
     const e = this._objects.get(name);
     if (!e || e.type !== 'vector_field') return;
     e.opts.length = length;
-    const newMesh = this._buildArrowField(e.opts.origins, e.opts.vectors, length, e.opts.radius, e.color);
+    const newMesh = this._buildArrowField(e.opts.origins, e.opts.vectors, length, e.opts.radius, e.color,
+                                          e.opts.vectortype);
     newMesh.name    = name;
     newMesh.visible = e.visible;
     this.scene.remove(e.mesh);
@@ -195,7 +200,8 @@ export class Viewer {
     const e = this._objects.get(name);
     if (!e || e.type !== 'vector_field') return;
     e.opts.radius = radius;
-    const newMesh = this._buildArrowField(e.opts.origins, e.opts.vectors, e.opts.length, radius, e.color);
+    const newMesh = this._buildArrowField(e.opts.origins, e.opts.vectors, e.opts.length, radius, e.color,
+                                          e.opts.vectortype);
     newMesh.name    = name;
     newMesh.visible = e.visible;
     this.scene.remove(e.mesh);
@@ -233,8 +239,20 @@ export class Viewer {
     this._emit();
   }
 
+  /** Flat shading (one normal per triangle) or smooth (vertex normals). */
+  setFlat(name, flat) {
+    const e = this._objects.get(name);
+    if (!e || e.type !== 'surface_mesh') return;
+    e.opts.flat = !!flat;
+    if ('flatShading' in e.mesh.material) {
+      e.mesh.material.flatShading = e.opts.flat;
+      e.mesh.material.needsUpdate = true;
+    }
+  }
+
   /** After a material swap: colour the new material with the active scalar again. */
   _reapplyScalar(e) {
+    if (e.opts.flat) this.setFlat(e.mesh.name, true);
     const child = e.activeScalar && e.children.get(e.activeScalar);
     if (!child) return;
     child._priorMaterialColor = undefined;   // the new material holds e.color
@@ -313,12 +331,14 @@ export class Viewer {
 
   // ── Scalar quantity ───────────────────────────────────────────────────────
 
-  addScalarQuantity(parentName, key, values, definedOn = 'vertices') {
+  addScalarQuantity(parentName, key, values, definedOn = 'vertices',
+                    { cmap = 'viridis', vminmax = null } = {}) {
     const e = this._objects.get(parentName);
     if (!e || e.type !== 'surface_mesh') return;
     const wasActive = (e.activeScalar === key);
     if (e.children.has(key)) e.removeChild(key, this.scene, e.mesh);
-    const child = new ScalarChild({ key, values, definedOn });
+    const child = new ScalarChild({ key, values, definedOn, cmap });
+    if (vminmax) [child.vmin, child.vmax] = vminmax;
     e.addChild(child);
     // Auto-activate if no scalar active, or if replacing the currently active one
     if (wasActive || e.activeScalar === null) {
@@ -361,7 +381,8 @@ export class Viewer {
    * vector quantities is taken (a replaced quantity keeps its colour).
    */
   addVectorQuantity(parentName, key, vectors, definedOn = 'vertices',
-                    { color = null, length = 0.05, radius = null, show = null } = {}) {
+                    { color = null, length = null, radius = null, show = null,
+                      vectortype = 'standard' } = {}) {
     const parent = this._objects.get(parentName);
     if (!parent || (parent.type !== 'surface_mesh' && parent.type !== 'point_cloud')) return;
     const origins = this._vectorOrigins(parent, definedOn);
@@ -372,16 +393,19 @@ export class Viewer {
     }
     const prev = parent.children.get(key);
     color  = color ?? (prev?.type === 'vector' ? prev.color : this._nextVectorColor(parent));
+    length = length ?? 0.04 * this._size(parent.type === 'point_cloud' ? parent.opts.points
+                                                                      : parent.opts.vertices);
     radius = radius ?? length * 0.04;
     // A replaced quantity keeps its visibility unless show says otherwise
     const visible = show ?? (prev?.type === 'vector' ? prev.visible : true);
     if (prev) parent.removeChild(key, this.scene, parent.mesh);
-    const mesh = this._buildArrowField(origins, vectors, length, radius, color);
+    const mesh = this._buildArrowField(origins, vectors, length, radius, color, vectortype);
     mesh.name        = `${parentName}::${key}`;
     mesh.renderOrder = 1;
     this.scene.add(mesh);
     const child = new VectorChild({ key, mesh, origins, vectors, definedOn,
                                     color: [...color], length, radius });
+    child.vectortype = vectortype;
     parent.addChild(child);
     child.setVisible(visible);
     // Inherit a hidden parent; ticking the parent shows it (setEnabled
@@ -404,8 +428,8 @@ export class Viewer {
     if (!e) return;
     const child = e.children.get(childKey);
     if (!child || child.type !== 'vector') return;
-    const { origins, vectors, color, radius, visible } = child;
-    const newMesh = this._buildArrowField(origins, vectors, length, radius, color);
+    const { origins, vectors, color, radius, visible, vectortype } = child;
+    const newMesh = this._buildArrowField(origins, vectors, length, radius, color, vectortype);
     newMesh.name        = `${parentName}::${childKey}`;
     newMesh.renderOrder = 1;
     newMesh.visible     = visible;
@@ -426,8 +450,8 @@ export class Viewer {
     if (!e) return;
     const child = e.children.get(childKey);
     if (!child || child.type !== 'vector') return;
-    const { origins, vectors, color, length, visible } = child;
-    const newMesh = this._buildArrowField(origins, vectors, length, radius, color);
+    const { origins, vectors, color, length, visible, vectortype } = child;
+    const newMesh = this._buildArrowField(origins, vectors, length, radius, color, vectortype);
     newMesh.name        = `${parentName}::${childKey}`;
     newMesh.renderOrder = 1;
     newMesh.visible     = visible;
@@ -524,6 +548,7 @@ export class Viewer {
         else if (prop === 'color')       this.setColor(name, value);
         else if (prop === 'opacity')     this.setOpacity(name, value);
         else if (prop === 'showEdges')   this.toggleEdges(name, value);
+        else if (prop === 'flat')        this.setFlat(name, value);
         else if (prop === 'activeScalar') {
           if (value === null || e.children.get(value)?.type === 'scalar') this.setActiveScalar(name, value);
         } else if (prop.startsWith('range:')) {
@@ -572,7 +597,8 @@ export class Viewer {
         const en = this._objects.get(obj.name);
         if (en) {
           en.opts.sent = { visible: obj.show ?? true, color: obj.color, opacity: obj.opacity ?? 1,
-                           showEdges: !!obj.show_edges };
+                           showEdges: !!obj.show_edges, flat: obj.shading === 'flat' };
+          this.setFlat(obj.name, obj.shading === 'flat');
           if (obj.tris_per_face) en.opts.trisPerFace = obj.tris_per_face;
           if (obj.poly_edges) {
             // index pairs into the mesh's own vertices
@@ -592,11 +618,11 @@ export class Viewer {
       }
       case 'curve_network':
         this.registerCurveNetwork(obj.name, obj.vertices, obj.edges,
-                                  obj.color ?? [0.8,0.2,0.2], obj.radius ?? 0.002);
+                                  obj.color ?? [0.8,0.2,0.2], obj.radius ?? null);
         break;
       case 'point_cloud':
         this.registerPointCloud(obj.name, obj.points,
-                                obj.color ?? [0.2,0.5,0.8], obj.radius ?? 0.0005);
+                                obj.color ?? [0.2,0.5,0.8], obj.radius ?? null);
         break;
       case 'edge_child':
         // { type:'edge_child', target, vertices, edges, color, radius }
@@ -605,7 +631,8 @@ export class Viewer {
         break;
       case 'scalar_quantity': {
         this.addScalarQuantity(obj.target, obj.name, obj.values,
-                               obj.defined_on ?? 'vertices');
+                               obj.defined_on ?? 'vertices',
+                               { cmap: obj.cmap ?? 'viridis', vminmax: obj.vminmax ?? null });
         const parent = this._objects.get(obj.target);
         if (!parent || !parent.children.has(obj.name)) break;
         if (obj.show === true) {
@@ -621,8 +648,9 @@ export class Viewer {
       case 'vector_quantity': {
         this.addVectorQuantity(obj.target, obj.name, obj.vectors,
                                obj.defined_on ?? 'vertices', {
-                                 color: obj.color ?? null, length: obj.length ?? 0.05,
+                                 color: obj.color ?? null, length: obj.length ?? null,
                                  radius: obj.radius ?? null, show: obj.show ?? null,
+                                 vectortype: obj.vectortype ?? 'standard',
                                });
         const parent = this._objects.get(obj.target);
         if (obj.show === true && parent?.children.has(obj.name)) {
@@ -634,7 +662,8 @@ export class Viewer {
       }
       case 'vector_field':
         this.registerVectorField(obj.name, obj.origins, obj.vectors,
-                                 obj.length ?? 0.05, obj.radius ?? null, obj.color ?? [0.2, 0.8, 0.4]);
+                                 obj.length ?? null, obj.radius ?? null, obj.color ?? [0.2, 0.8, 0.4],
+                                 obj.vectortype ?? 'standard');
         break;
       case 'set_enabled':
         this.setEnabled(obj.name, obj.enabled);
@@ -740,9 +769,13 @@ export class Viewer {
     return new THREE.Mesh(geo, mat);
   }
 
-  _buildArrowField(origins, vectors, length, radius, color) {
-    // One shaft + cone geometry along +y, instanced per arrow (rotation + origin):
-    // geometry memory and build time no longer grow with the number of arrows.
+  /**
+   * vectortype (as Polyscope): 'standard' — length × |v| / max|v| (magnitudes
+   * compared); 'ambient' — |v| in scene units; 'unit' — every arrow `length` long.
+   */
+  _buildArrowField(origins, vectors, length, radius, color, vectortype = 'standard') {
+    // One shaft + cone geometry along +y, instanced per arrow (rotation, origin and
+    // a stretch along the arrow): memory and build time do not grow with the count.
     const SEGS   = 7;
     const shaftL = length * 0.80, coneL = length * 0.20;
     const shaft  = new THREE.CylinderGeometry(radius, radius, shaftL, SEGS, 1, false);
@@ -755,19 +788,28 @@ export class Viewer {
     const mat  = new THREE.MeshPhongMaterial({ color: this._rgb(color), shininess: 40 });
     const N    = Math.floor(origins.length / 3);
     const up   = new THREE.Vector3(0, 1, 0), dir = new THREE.Vector3();
-    const quat = new THREE.Quaternion(), pos = new THREE.Vector3(), one = new THREE.Vector3(1, 1, 1);
+    const quat = new THREE.Quaternion(), pos = new THREE.Vector3(), stretch = new THREE.Vector3();
     const m    = new THREE.Matrix4();
     const mesh = new THREE.InstancedMesh(geo, mat, N);
+    let maxLen = 0;
+    for (let i = 0; i < N; i++) {
+      const l = Math.hypot(vectors[i*3], vectors[i*3+1], vectors[i*3+2]);
+      if (l > maxLen) maxLen = l;              // NaN fails the test
+    }
+    const scaleOf = vectortype === 'ambient'  ? l => l / length
+                  : vectortype === 'unit'     ? () => 1
+                  :                             l => l / maxLen;
     let k = 0;
     for (let i = 0; i < N; i++) {
       dir.set(vectors[i*3], vectors[i*3+1], vectors[i*3+2]);
       const len = dir.length();
-      if (!(len > 1e-9)) continue;
+      if (!(len > 1e-12) || !Number.isFinite(len)) continue;
       dir.divideScalar(len);
       if (dir.dot(up) < -0.9999) quat.set(1, 0, 0, 0);
       else quat.setFromUnitVectors(up, dir);
       pos.set(origins[i*3], origins[i*3+1], origins[i*3+2]);
-      mesh.setMatrixAt(k++, m.compose(pos, quat, one));
+      stretch.set(1, scaleOf(len), 1);
+      mesh.setMatrixAt(k++, m.compose(pos, quat, stretch));
     }
     mesh.count = k;                      // zero-length vectors are skipped
     mesh.instanceMatrix.needsUpdate = true;
@@ -846,6 +888,25 @@ export class Viewer {
   }
 
   _rgb([r, g, b]) { return new THREE.Color(r, g, b); }
+
+  /** Diagonal of the bounding box of flat xyz data: the length scale of default
+   *  sizes. A single point (or none) falls back to the scene, then to 1. */
+  _size(xyz) {
+    let x0 = Infinity, y0 = Infinity, z0 = Infinity, x1 = -Infinity, y1 = -Infinity, z1 = -Infinity;
+    for (let i = 0; i + 2 < (xyz?.length ?? 0); i += 3) {
+      const x = xyz[i], y = xyz[i + 1], z = xyz[i + 2];
+      if (!Number.isFinite(x + y + z)) continue;
+      if (x < x0) x0 = x; if (x > x1) x1 = x;
+      if (y < y0) y0 = y; if (y > y1) y1 = y;
+      if (z < z0) z0 = z; if (z > z1) z1 = z;
+    }
+    const d = Math.hypot(x1 - x0, y1 - y0, z1 - z0);
+    if (d > 0 && Number.isFinite(d)) return d;
+    const box = new THREE.Box3();
+    for (const e of this._objects.values()) if (e.mesh) box.expandByObject(e.mesh);
+    const s = box.isEmpty() ? 0 : box.getSize(new THREE.Vector3()).length();
+    return s > 0 && Number.isFinite(s) ? s : 1;
+  }
 
   _emit() {
     if (this._batch) { this._emitDue = true; return; }

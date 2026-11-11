@@ -81,6 +81,9 @@ _structures: dict = {}
 _structures_lock = threading.Lock()
 _STRUCTURE_TYPES = ("surface_mesh", "point_cloud", "curve_network", "vector_field")
 
+# Up axis of the viewer (the page reads it at start: /api/_info).
+_up: str = "z"
+
 # Built-in materials of static/lib/MaterialLibrary.js (custom ones registered in the
 # browser also work; an unknown name only warns).
 KNOWN_MATERIALS = ("physical", "lambert", "phong", "blinn_phong", "toon", "flat",
@@ -184,13 +187,14 @@ def register_surface_mesh(name: str, vertices, faces,
                           show_edges: bool = False,
                           edge_color=(0.1, 0.1, 0.1),
                           edge_radius: float = 0.0, show: bool = True,
-                          material=None) -> None:
+                          material=None, shading: str = "auto") -> None:
     """Mirrors ps.register_surface_mesh(). Pass show_edges=True to overlay the wireframe,
     show=False to register it hidden (tick it in the scene panel to show it).
 
     Edges are always drawn as thin tubes (so other objects occlude them); edge_radius=0
     picks 3% of the median edge length. The shader is global (scene panel "Shader") unless
-    material names one for this mesh, e.g. material="glass"."""
+    material names one for this mesh, e.g. material="glass". shading: "flat", "smooth" or
+    "auto" (flat for polygon meshes, smooth for triangle meshes)."""
     if material is not None and material not in KNOWN_MATERIALS:
         import warnings
         warnings.warn(f"{name}: unknown material {material!r} (built-in: "
@@ -199,7 +203,8 @@ def register_surface_mesh(name: str, vertices, faces,
     result = ser.surface_mesh(name, vertices, faces,
                               color=color, opacity=opacity,
                               show_edges=show_edges, edge_color=edge_color,
-                              edge_radius=edge_radius, show=show, material=material)
+                              edge_radius=edge_radius, show=show, material=material,
+                              shading=shading)
     if isinstance(result, list):
         push_objects(result)
     else:
@@ -207,27 +212,34 @@ def register_surface_mesh(name: str, vertices, faces,
 
 
 def register_curve_network(name: str, vertices, edges,
-                           color=(0.8, 0.2, 0.2), radius: float = 0.002,
+                           color=(0.8, 0.2, 0.2), radius: float = None,
                            show: bool = True) -> None:
-    """Mirrors ps.register_curve_network(). show=False registers it hidden."""
+    """Mirrors ps.register_curve_network(). show=False registers it hidden.
+    radius: tube radius; None picks 0.15% of the curve's size, 0 draws thin lines."""
     _push(ser.curve_network(name, vertices, edges, color=color, radius=radius, show=show))
 
 
 def register_point_cloud(name: str, points,
-                         color=(0.2, 0.5, 0.8), radius: float = 0.0005,
+                         color=(0.2, 0.5, 0.8), radius: float = None,
                          show: bool = True) -> None:
-    """Mirrors ps.register_point_cloud(). show=False registers it hidden."""
+    """Mirrors ps.register_point_cloud(). show=False registers it hidden.
+    radius: sphere radius; None picks 0.5% of the cloud's size."""
     _push(ser.point_cloud(name, points, color=color, radius=radius, show=show))
 
 
 def add_scalar_quantity(target: str, field_name: str, values,
-                        defined_on: str = "vertices", show: bool = None) -> None:
+                        defined_on: str = "vertices", show: bool = None,
+                        cmap: str = "viridis", vminmax=None) -> None:
     """Mirrors structure.add_scalar_quantity().
 
     show: None (default) follows the target; True colours the target with it and shows the
     target if it was hidden; False adds it without colouring the mesh.
+    cmap: viridis, plasma, inferno, magma, cividis, coolwarm, rdbu, piyg (diverging: signed
+    data), twilight (cyclic: angles), turbo, gray, blues.
+    vminmax: (vmin, vmax) colour range; default the range of the finite values.
     """
-    d = ser.scalar_quantity(target, field_name, values, defined_on=defined_on, show=show)
+    d = ser.scalar_quantity(target, field_name, values, defined_on=defined_on, show=show,
+                            cmap=cmap, vminmax=vminmax)
     _check_quantity("add_scalar_quantity", target, len(d["values"]), defined_on,
                     ("surface_mesh",))
     _push(d)
@@ -235,48 +247,91 @@ def add_scalar_quantity(target: str, field_name: str, values,
 
 def add_vector_quantity(target: str, field_name: str, vectors,
                         defined_on: str = "vertices",
-                        length: float = 0.05, radius: float = None,
-                        show: bool = None, color=None) -> None:
+                        length: float = None, radius: float = None,
+                        show: bool = None, color=None, vectortype: str = "standard") -> None:
     """Mirrors structure.add_vector_quantity().
 
     Args:
         target:     Name of the surface mesh (or point cloud) the vectors are attached to.
         field_name: Scene label for the vector quantity.
-        vectors:    (N, 3) direction vectors (unit-normalized in the viewer).
+        vectors:    (N, 3) vectors.
         defined_on: "vertices" (arrows start at the vertices) or "faces" (at the face
                     barycenters; N must be the number of faces).
-        length:     Total arrow length in scene units; adjust with the scene-panel slider.
+        length:     Arrow length in scene units (of the longest arrow for "standard");
+                    None picks 4% of the target's size. Adjust with the scene-panel slider.
         radius:     Arrow shaft/cone radius in scene units; defaults to length * 0.04.
         show:       None (default) follows the target: hidden while the target is hidden.
                     True shows the arrows and the target; False adds them hidden.
                     Several vector quantities of one target can be shown at once.
         color:      [r, g, b] in 0-1. None (default): the next colour of the viewer's
                     palette not used by the target's other vector quantities.
+        vectortype: "standard" (default): arrow length × |v| / max|v|, magnitudes
+                    compare; "ambient": |v| in scene units; "unit": all `length`.
     """
     d = ser.vector_quantity(target, field_name, vectors, defined_on=defined_on,
-                            length=length, radius=radius, show=show, color=color)
+                            length=length, radius=radius, show=show, color=color,
+                            vectortype=vectortype)
     _check_quantity("add_vector_quantity", target, len(d["vectors"]) // 3, defined_on,
                     ("surface_mesh",) if defined_on == "faces" else ("surface_mesh", "point_cloud"))
     _push(d)
 
 
 def register_vector_field(name: str, origins, vectors,
-                          length: float = 0.05,
+                          length: float = None,
                           radius: float = None,
-                          color=(0.2, 0.8, 0.4), show: bool = True) -> None:
+                          color=(0.2, 0.8, 0.4), show: bool = True,
+                          vectortype: str = "standard") -> None:
     """Render an arrow field (cylinder shaft + cone head per vector).
 
     Args:
         name:    Scene label.
         origins: (N, 3) base points for each arrow.
-        vectors: (N, 3) direction vectors (unit-normalized in the viewer).
-        length:  Total arrow length in scene units; adjust with the scene-panel slider.
+        vectors: (N, 3) vectors.
+        length:  Arrow length in scene units (of the longest arrow for "standard");
+                 adjust with the scene-panel slider.
         radius:  Arrow shaft/cone radius in scene units; defaults to length * 0.04.
         color:   [r, g, b] in 0-1.
         show:    False registers it hidden (tick it in the scene panel to show it).
+        vectortype: "standard", "ambient" or "unit", as in add_vector_quantity.
     """
     _push(ser.vector_field(name, origins, vectors, length=length, radius=radius, color=color,
-                           show=show))
+                           show=show, vectortype=vectortype))
+
+
+def set_up_dir(axis: str) -> None:
+    """Up axis of the viewer: "z" (default) or "y". Open tabs reload to apply it."""
+    global _up
+    if axis not in ("y", "z"):
+        raise ValueError(f"set_up_dir: axis must be 'y' or 'z', got {axis!r}")
+    _up = axis
+    _view({"up": axis})
+
+
+def look_at(position, target=(0.0, 0.0, 0.0)) -> None:
+    """Place the camera of the open viewer tabs at *position*, looking at *target*."""
+    pos = [float(x) for x in position]
+    tgt = [float(x) for x in target]
+    if len(pos) != 3 or len(tgt) != 3:
+        raise ValueError("look_at: position and target are 3D points")
+    _view({"camera": {"position": pos, "target": tgt}})
+
+
+def reset_camera() -> None:
+    """Frame the whole scene in the open viewer tabs (as the R key does)."""
+    _view({"fit": True})
+
+
+def _view(msg: dict) -> None:
+    """View settings go to every tab (all apps subscribe to the script channel)."""
+    _ensure_init()
+    if _mode in ("local", "hosted"):
+        script = _registry.get_app("script")
+        _run_on_loop(script._broadcast({"action": "view", **msg}))
+        return
+    try:
+        requests.post(f"{_url}/api/script/view", json=msg, timeout=10)
+    except requests.RequestException as e:
+        print(f"[kayviz] view failed: {e}", file=sys.stderr)
 
 
 def push_objects(objects: list) -> None:
@@ -332,9 +387,11 @@ DEFAULT_VIEWS = (
 
 # Framing computed from the scene bounds instead of the live camera.  Use when
 # you want every mesh framed identically regardless of where the camera sits.
+# "dir" is written y-up (x right, y up, z towards the viewer); with a z-up viewer it is
+# turned so the views look the same. Give "up" to use dir and up literally.
 FITTED_VIEWS = (
-    {"dir": (1.0, 0.7, 1.0),   "up": (0.0, 1.0, 0.0), "zoom": 1.05},
-    {"dir": (-1.0, 0.5, -0.8), "up": (0.0, 1.0, 0.0), "zoom": 1.05},
+    {"dir": (1.0, 0.7, 1.0),   "zoom": 1.05},
+    {"dir": (-1.0, 0.5, -0.8), "zoom": 1.05},
 )
 
 # Same fixed angles as FITTED_VIEWS but closer in, so less empty background.
@@ -351,8 +408,8 @@ FITTED_VIEWS = (
 TIGHT_ZOOM = 0.75
 
 TIGHT_VIEWS = (
-    {"dir": (1.0, 0.7, 1.0),   "up": (0.0, 1.0, 0.0), "zoom": TIGHT_ZOOM},
-    {"dir": (-1.0, 0.5, -0.8), "up": (0.0, 1.0, 0.0), "zoom": TIGHT_ZOOM},
+    {"dir": (1.0, 0.7, 1.0),   "zoom": TIGHT_ZOOM},
+    {"dir": (-1.0, 0.5, -0.8), "zoom": TIGHT_ZOOM},
 )
 
 # Populated by the last capture; surfaced through get_camera().
@@ -384,9 +441,11 @@ def _capture(views, width, height, hide_grid, timeout, background="white"):
             if v.get("orbit"):
                 item["orbit"] = float(v["orbit"])
         else:
-            item = {"dir":  list(v["dir"]),
-                    "up":   list(v.get("up", (0.0, 1.0, 0.0))),
-                    "zoom": float(v.get("zoom", 1.0))}
+            if "dir" not in v:
+                raise ValueError(f"screenshot view needs 'dir' (or 'live': True), got {v}")
+            item = {"dir":  list(v["dir"]), "zoom": float(v.get("zoom", 1.0))}
+            if "up" in v:
+                item["up"] = list(v["up"])
         norm.append(item)
     views = norm
     try:

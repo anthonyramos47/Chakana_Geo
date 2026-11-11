@@ -26,7 +26,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, Request
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
 
@@ -97,7 +97,9 @@ def create_app(apps=(), shared: bool = False, default_app: str | None = None,
         names = app_names()
         user_apps = [n for n in names if n != "script"]
         default = fastapi_app.state.default_app or (user_apps[-1] if user_apps else "script")
-        return {"apps": names, "default": default, "shared": shared, "instance": instance}
+        from .webscope import script as _script
+        return {"apps": names, "default": default, "shared": shared, "instance": instance,
+                "up": _script._up}
 
     @fastapi_app.post("/api/_shutdown")
     def shutdown():
@@ -115,7 +117,10 @@ def create_app(apps=(), shared: bool = False, default_app: str | None = None,
 
     @fastapi_app.get("/")
     def root():
-        return FileResponse(STATIC_DIR / "index.html")
+        # the page reads the up axis synchronously, before it builds the camera
+        from .webscope import script as _script
+        html = (STATIC_DIR / "index.html").read_text().replace("__KAYVIZ_UP__", _script._up)
+        return HTMLResponse(html, headers={"Cache-Control": "no-store"})
 
     return fastapi_app
 

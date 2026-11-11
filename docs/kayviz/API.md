@@ -235,6 +235,19 @@ Fields sharing a prefix (`sphere_radius`, `sphere_center`) are grouped in one fo
 { "action": "error", "message": "…" }
 ```
 
+**Viewing.** z is up by default (`kv.set_up_dir("y")` switches; open tabs reload). The view
+fits the scene when the first geometry arrives; **F** frames the scene from the current
+direction, **R** (or the ⤢ button) resets the view; `kv.look_at(position, target)` and
+`kv.reset_camera()` drive the camera from Python. Clip planes and the grid follow the scene
+size, so any unit works. Default sizes are relative: point radius 0.5% and curve tube radius
+0.15% of the object's size, arrow length 4% of the target's size (pass a number to fix one).
+Surface meshes take `shading="auto" | "flat" | "smooth"` (auto: flat for polygon meshes,
+smooth for triangle meshes; also a "flat shading" checkbox in the scene panel).
+Scalars take `cmap=` (viridis, plasma, inferno, magma, cividis, coolwarm, rdbu, piyg,
+twilight, turbo, gray, blues) and `vminmax=(vmin, vmax)`. Vectors take
+`vectortype="standard"` (length × |v| / max|v|, the default), `"ambient"` (|v| in scene
+units) or `"unit"` (all the same length).
+
 **Access.** The viewer answers only this machine's programs and its own page: other web
 pages open in your browser cannot read the scene, run callbacks or stop the server
 (Host, Origin and Sec-Fetch-Site checks, `kayviz/security.py`). Behind a proxy (JupyterHub,

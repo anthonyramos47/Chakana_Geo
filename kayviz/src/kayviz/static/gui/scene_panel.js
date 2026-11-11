@@ -282,7 +282,7 @@ export class ScenePanel {
     // Radius slider (point clouds only)
     if (entry.type === 'point_cloud') {
       const { wrap } = this._slider(
-        'radius', entry.radius ?? 0.01, 0.001, 0.1, 0.001,
+        'radius', entry.radius, ...this._around(entry.radius),
         v => this._viewer.setRadius(name, v)
       );
       ctrlLine.appendChild(wrap);
@@ -294,12 +294,12 @@ export class ScenePanel {
     if (entry.type === 'vector_field') {
       row.appendChild(this._subRow([
         this._label('length'),
-        this._sliderOnly(entry.opts.length ?? 0.05, 0.001, 0.5, 0.001,
+        this._sliderOnly(entry.opts.length, ...this._around(entry.opts.length),
           v => this._viewer.setVectorLength(name, v)),
       ]));
       row.appendChild(this._subRow([
         this._label('radius'),
-        this._sliderOnly(entry.opts.radius ?? 0.002, 0.0002, 0.05, 0.0002,
+        this._sliderOnly(entry.opts.radius, ...this._around(entry.opts.radius),
           v => this._viewer.setVectorRadius(name, v)),
       ]));
     }
@@ -308,7 +308,8 @@ export class ScenePanel {
     if (entry.type === 'curve_network') {
       row.appendChild(this._subRow([
         this._label('tube r'),
-        this._sliderOnly(entry.radius ?? 0, 0, 0.02, 0.0005,
+        this._sliderOnly(entry.radius ?? 0, 0, this._around(entry.radius)[1],
+          this._around(entry.radius)[2],
           v => this._viewer.setCurveRadius(name, v)),
       ]));
     }
@@ -340,6 +341,12 @@ export class ScenePanel {
 
       edgeLine.append(edgeChk, edgeLabel);
       row.appendChild(edgeLine);
+
+      // Flat shading: planar polygons look planar (default for polygon meshes)
+      row.appendChild(this._labelCheckbox('flat shading', !!entry.opts.flat, (checked) => {
+        this._viewer.setFlat(name, checked);
+        this._viewer.remember(name, 'flat', checked);
+      }));
 
       // Index label checkboxes (surface mesh)
       row.appendChild(this._labelCheckbox(
@@ -635,7 +642,7 @@ export class ScenePanel {
     const subRow = this._subRow([
       colorPicker,
       this._label('length'),
-      this._sliderOnly(child.length ?? 0.05, 0.001, 0.5, 0.001,
+      this._sliderOnly(child.length, ...this._around(child.length),
         v => this._viewer.setChildVectorLength(parentName, childKey, v)),
     ]);
     subRow.style.paddingLeft = '20px';
@@ -643,7 +650,7 @@ export class ScenePanel {
 
     const radiusRow = this._subRow([
       this._label('radius'),
-      this._sliderOnly(child.radius ?? 0.002, 0.0002, 0.05, 0.0002,
+      this._sliderOnly(child.radius, ...this._around(child.radius),
         v => this._viewer.setChildVectorRadius(parentName, childKey, v)),
     ]);
     radiusRow.style.paddingLeft = '20px';
@@ -837,6 +844,13 @@ export class ScenePanel {
   }
 
   // ── Color utilities ───────────────────────────────────────────────────────
+
+  /** [min, max, step] of a size slider around its current value (sizes are relative
+   *  to the scene, so no absolute range fits every unit). */
+  _around(v) {
+    const b = v > 0 ? v : 1e-3;
+    return [b / 20, b * 20, b / 200];
+  }
 
   _rgbToHex([r, g, b]) {
     const h = v => Math.round(v * 255).toString(16).padStart(2, '0');

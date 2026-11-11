@@ -113,6 +113,8 @@ export class WSClient {
           this.viewer.clearAll();
         } else if (data.action === 'remove' && data.name) {
           this.viewer.remove(data.name);
+        } else if (data.action === 'view') {
+          window.__applyView?.(data);
         } else if (data.objects?.length) {
           this.viewer.applyMessage(data);
         }

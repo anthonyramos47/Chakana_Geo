@@ -77,13 +77,14 @@ export class Studio {
    * @param {{keyLight: THREE.DirectionalLight, ambient: THREE.AmbientLight,
    *          grid: THREE.Object3D}} opts
    */
-  constructor(renderer, scene, camera, { keyLight, ambient, grid }) {
+  constructor(renderer, scene, camera, { keyLight, ambient, grid, up = 'y' }) {
     this.renderer = renderer;
     this.scene    = scene;
     this.camera   = camera;
     this.keyLight = keyLight;
     this.ambient  = ambient;
     this.grid     = grid;
+    this.up       = up;           // 'y' or 'z': the floor lies across it
     this.enabled  = false;
     this.theme    = 'dark';
     this._frame   = 0;
@@ -116,7 +117,7 @@ export class Studio {
     this.floor = new THREE.Mesh(new THREE.PlaneGeometry(1, 1),
       new THREE.ShadowMaterial({ color: '#4d535c', opacity: 0.3, polygonOffset: true,
                                  polygonOffsetFactor: -4, polygonOffsetUnits: -8 }));
-    this.floor.rotation.x = -Math.PI / 2;
+    if (up === 'y') this.floor.rotation.x = -Math.PI / 2;   // PlaneGeometry faces +z
     this.floor.receiveShadow = true;
     this.floor.visible = false;
     this.floor.userData.studioHelper = true;
@@ -140,6 +141,7 @@ export class Studio {
         gridVisible: this.grid.visible, castShadow: k.castShadow,
         shadowMapSize: k.shadow.mapSize.clone(),
         keyIntensity: k.intensity, ambientIntensity: this.ambient?.intensity,
+        keyPosition: k.position.clone(),
       };
       // Studio lighting: flat ambient light washes the shadows out, so the environment map
       // does the fill and the key light carries the shadow. Restored by setEnabled(false).
@@ -169,6 +171,7 @@ export class Studio {
       this.grid.visible = sv.gridVisible;
       k.castShadow = sv.castShadow;
       k.intensity = sv.keyIntensity;
+      k.position.copy(sv.keyPosition);
       if (this.ambient) this.ambient.intensity = sv.ambientIntensity;
       k.target.position.set(0, 0, 0);
       k.target.updateMatrixWorld();
@@ -217,11 +220,16 @@ export class Studio {
     this._R = R;
     this._applyAORadius();
 
-    this.floor.position.set(c.x, box.min.y - 0.002 * R, c.z);
+    if (this.up === 'z') this.floor.position.set(c.x, c.y, box.min.z - 0.002 * R);
+    else                 this.floor.position.set(c.x, box.min.y - 0.002 * R, c.z);
     this.floor.scale.set(20 * R, 20 * R, 1);
 
     // Directional shadow: aim the key light at the centre, ortho frustum around the box.
     const k = this.keyLight, sc = k.shadow.camera;
+    // Same direction as the plain key light (position seen from the origin), placed
+    // relative to the scene: an absolute position lights a far-away scene sideways.
+    const dir = this._saved?.keyPosition.clone().normalize() ?? new THREE.Vector3(0, 0, 1);
+    k.position.copy(c).addScaledVector(dir, 4 * R);
     k.target.position.copy(c);
     k.target.updateMatrixWorld();
     const d = k.position.distanceTo(c);

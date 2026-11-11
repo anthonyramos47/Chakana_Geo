@@ -143,6 +143,25 @@ def _unit(x, name: str, what: str) -> float:
 
 DEFINED_ON = ("vertices", "faces")
 
+def _shading(s, name, polygons: bool) -> str:
+    if s not in ("auto", "flat", "smooth"):
+        raise ValueError(f"{name}: shading must be 'auto', 'flat' or 'smooth', got {s!r}")
+    return ("flat" if polygons else "smooth") if s == "auto" else s
+
+
+VECTOR_TYPES = ("standard", "ambient", "unit")
+
+
+def _vectortype(t, name):
+    if t not in VECTOR_TYPES:
+        raise ValueError(f"{name}: vectortype must be 'standard', 'ambient' or 'unit', got {t!r}")
+    return t
+
+
+# static/lib/colormap.js
+COLORMAPS = ("viridis", "plasma", "inferno", "magma", "cividis", "coolwarm", "rdbu", "piyg",
+             "twilight", "turbo", "gray", "blues")
+
 
 def _defined_on(d, name):
     if d not in DEFINED_ON:
@@ -171,7 +190,7 @@ def _polygon_edges(F) -> np.ndarray:
 def surface_mesh(name: str, vertices, faces, color=(0.8, 0.8, 0.8),
                  face_size=None, opacity=1.0, show_edges=False,
                  edge_color=(0.1, 0.1, 0.1), edge_radius: float = 0.0, show: bool = True,
-                 material=None):
+                 material=None, shading: str = "auto"):
     """Mirrors ps.register_surface_mesh(). show=False registers the object hidden (its checkbox in the scene panel unticked).
     material (e.g. "glass") pins this mesh's shader; None follows the global Shader dropdown.
 
@@ -182,6 +201,10 @@ def surface_mesh(name: str, vertices, faces, color=(0.8, 0.8, 0.8),
     ``poly_edges``, pairs of indices into its vertices; the viewer draws them as tubes
     when show_edges=True or when "show edges" is ticked. edge_radius=0 means 3% of the
     median edge length.
+
+    shading: "flat" (one normal per triangle: planar polygons look planar), "smooth"
+    (vertex normals), or "auto" (default): flat for polygon meshes, smooth for triangle
+    meshes.
 
     Arrays are numpy float32 / int32 (sent to the browser as binary, see
     kayviz.webscope.wire); ``kayviz.webscope.wire.jsonable`` turns them into lists.
@@ -215,6 +238,7 @@ def surface_mesh(name: str, vertices, faces, color=(0.8, 0.8, 0.8),
         "opacity":       _unit(opacity, name, "opacity"),
         "show_edges":    bool(show_edges),
         "show":          bool(show),
+        "shading":       _shading(shading, name, polygons=not uniform or first_len > 3),
     }
     if show_edges:
         mesh_dict["edge_color"]  = _rgb(edge_color, name, "edge_color")
@@ -224,7 +248,17 @@ def surface_mesh(name: str, vertices, faces, color=(0.8, 0.8, 0.8),
     return mesh_dict
 
 
-def curve_network(name: str, vertices, edges, color=(0.8, 0.2, 0.2), radius: float = 0.002,
+def _size(x, name, what):
+    """None (the viewer picks a size relative to the object) or a positive float."""
+    if x is None:
+        return None
+    x = float(x)
+    if not x >= 0:
+        raise ValueError(f"{name}: {what} must be >= 0, got {x}")
+    return x
+
+
+def curve_network(name: str, vertices, edges, color=(0.8, 0.2, 0.2), radius: float | None = None,
                   show: bool = True):
     """Mirrors ps.register_curve_network(). show=False registers the object hidden (its checkbox in the scene panel unticked)."""
     verts = _points(vertices, name)
@@ -234,19 +268,19 @@ def curve_network(name: str, vertices, edges, color=(0.8, 0.2, 0.2), radius: flo
         "vertices": verts,
         "edges":    _i32(_indices(edges, name, "edges", len(verts) // 3, width=2)),
         "color":    _rgb(color, name),
-        "radius":   float(radius),
+        "radius":   _size(radius, name, "radius"),   # None: 0.15% of its size; 0: lines
         "show":     bool(show),
     }
 
 
-def point_cloud(name: str, points, color=(0.2, 0.5, 0.8), radius=0.0005, show: bool = True):
+def point_cloud(name: str, points, color=(0.2, 0.5, 0.8), radius=None, show: bool = True):
     """Mirrors ps.register_point_cloud(). show=False registers the object hidden (its checkbox in the scene panel unticked)."""
     return {
         "type":   "point_cloud",
         "name":   name,
         "points": _points(points, name, "points"),
         "color":  _rgb(color, name),
-        "radius": float(radius),
+        "radius": _size(radius, name, "radius"),       # None: 0.5% of its size
         "show":   bool(show),
     }
 
@@ -266,8 +300,12 @@ def edge_child(target_name: str, vertices, edges,
 
 
 def scalar_quantity(target_name: str, field_name: str, values, defined_on="vertices",
-                    show: bool | None = None):
+                    show: bool | None = None, cmap: str = "viridis", vminmax=None):
     """Mirrors structure.add_scalar_quantity().
+
+    cmap: one of COLORMAPS (diverging coolwarm / rdbu / piyg for signed data, cyclic
+    twilight for angles). vminmax: (vmin, vmax) of the colour range; default the data
+    range (finite values).
 
     show: None (default) follows the parent - hidden while the parent is hidden; True also
     shows the parent; False adds the quantity without displaying it.
@@ -284,14 +322,23 @@ def scalar_quantity(target_name: str, field_name: str, values, defined_on="verti
         "defined_on": _defined_on(defined_on, f"{target_name}::{field_name}"),
         "values":     _f32(vals),          # NaN allowed: drawn in the NaN colour
     }
+    q = f"{target_name}::{field_name}"
+    if cmap not in COLORMAPS:
+        raise ValueError(f"{q}: unknown cmap {cmap!r} (one of {', '.join(COLORMAPS)})")
+    d["cmap"] = cmap
+    if vminmax is not None:
+        lo, hi = (float(x) for x in vminmax)
+        if not lo < hi:
+            raise ValueError(f"{q}: vminmax needs vmin < vmax, got {vminmax}")
+        d["vminmax"] = [lo, hi]
     if show is not None:
         d["show"] = bool(show)
     return d
 
 
 def vector_quantity(target_name: str, field_name: str, vectors, defined_on="vertices",
-                    length: float = 0.05, radius: float = None, show: bool | None = None,
-                    color=None):
+                    length: float | None = None, radius: float = None, show: bool | None = None,
+                    color=None, vectortype: str = "standard"):
     """Mirrors structure.add_vector_quantity().
 
     defined_on: "vertices" (arrows at the vertices / points) or "faces" (at the face
@@ -300,9 +347,9 @@ def vector_quantity(target_name: str, field_name: str, vectors, defined_on="vert
     shows the parent; False adds the quantity without displaying it.
     color: [r, g, b] in 0-1; None lets the viewer pick the next colour of its palette
     that no other vector quantity of the same parent uses.
+    vectortype (as Polyscope): "standard" — arrows length × |v| / max|v|, so magnitudes
+    compare; "ambient" — |v| in scene units (length is ignored); "unit" — all `length`.
     """
-    if radius is None:
-        radius = length * 0.04
     q = f"{target_name}::{field_name}"
     d = {
         "type":       "vector_quantity",
@@ -310,8 +357,9 @@ def vector_quantity(target_name: str, field_name: str, vectors, defined_on="vert
         "name":       field_name,
         "defined_on": _defined_on(defined_on, q),
         "vectors":    _points(vectors, q, "vectors"),
-        "length":     float(length),
-        "radius":     float(radius),
+        "vectortype": _vectortype(vectortype, q),
+        "length":     _size(length, q, "length"),   # None: 4% of the parent's size
+        "radius":     _size(radius, q, "radius"),   # None: 4% of the length
     }
     if show is not None:
         d["show"] = bool(show)
@@ -320,14 +368,13 @@ def vector_quantity(target_name: str, field_name: str, vectors, defined_on="vert
     return d
 
 
-def vector_field(name: str, origins, vectors, length: float = 0.05,
-                 radius: float = None, color=(0.2, 0.8, 0.4), show: bool = True):
+def vector_field(name: str, origins, vectors, length: float | None = None,
+                 radius: float = None, color=(0.2, 0.8, 0.4), show: bool = True,
+                 vectortype: str = "standard"):
     """Arrow vector field — origins + direction vectors, rendered as cylinder+cone arrows.
 
     show=False registers the object hidden (its checkbox in the scene panel unticked).
     """
-    if radius is None:
-        radius = length * 0.04
     o, v = _points(origins, name, "origins"), _points(vectors, name, "vectors")
     if len(o) != len(v):
         raise ValueError(f"{name}: {len(o) // 3} origins but {len(v) // 3} vectors")
@@ -336,8 +383,9 @@ def vector_field(name: str, origins, vectors, length: float = 0.05,
         "name":    name,
         "origins": o,
         "vectors": v,
-        "length":  float(length),
-        "radius":  float(radius),
+        "vectortype": _vectortype(vectortype, name),
+        "length":  _size(length, name, "length"),
+        "radius":  _size(radius, name, "radius"),
         "color":   _rgb(color, name),
         "show":    bool(show),
     }

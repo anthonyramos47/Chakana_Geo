@@ -168,13 +168,15 @@ class TestVectorQuantity:
         d = ser.vector_quantity("M", "n", np.zeros((2,3)))
         assert d["defined_on"] == "vertices"
 
-    def test_length_default(self):
+    def test_length_default_is_left_to_the_viewer(self):
+        # None: the viewer takes 4% of the object's size (any unit works)
         d = ser.vector_quantity("M", "n", np.zeros((2,3)))
-        assert d["length"] == pytest.approx(0.05)
+        assert d["length"] is None and d["radius"] is None
 
-    def test_radius_defaults_to_ratio_of_length(self):
+    def test_radius_defaults_to_the_viewer(self):
+        # None: the viewer takes 4% of the length
         d = ser.vector_quantity("M", "n", np.zeros((2,3)), length=0.2)
-        assert d["radius"] == pytest.approx(0.2 * 0.04)
+        assert d["length"] == pytest.approx(0.2) and d["radius"] is None
 
     def test_length_and_radius_custom(self):
         d = ser.vector_quantity("M", "n", np.zeros((2,3)), length=0.3, radius=0.01)
@@ -213,13 +215,15 @@ class TestVectorField:
         assert len(d["origins"]) == 9
         assert len(d["vectors"]) == 9
 
-    def test_length_default(self):
+    def test_length_default_is_left_to_the_viewer(self):
+        # None: the viewer takes 4% of the object's size (any unit works)
         d = ser.vector_field("F", np.zeros((1,3)), np.zeros((1,3)))
-        assert d["length"] == pytest.approx(0.05)
+        assert d["length"] is None and d["radius"] is None
 
-    def test_radius_defaults_to_ratio_of_length(self):
+    def test_radius_defaults_to_the_viewer(self):
+        # None: the viewer takes 4% of the length
         d = ser.vector_field("F", np.zeros((1,3)), np.zeros((1,3)), length=0.2)
-        assert d["radius"] == pytest.approx(0.2 * 0.04)
+        assert d["length"] == pytest.approx(0.2) and d["radius"] is None
 
     def test_length_and_radius_custom(self):
         d = ser.vector_field("F", np.zeros((1,3)), np.zeros((1,3)), length=0.3, radius=0.01)
