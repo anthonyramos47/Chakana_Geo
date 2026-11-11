@@ -32,14 +32,20 @@ class BroadcastMixin:
 
     def _buffer_objects(self, objects: list[dict]) -> None:
         for obj in objects:
-            # ws.clear() inside a callback arrives as a marker rather than an
-            # HTTP call; drop everything buffered so far so objects from a
-            # previous mesh/run don't linger behind the new scene.
-            if obj.get("action") == "clear":
+            # ws.clear() / ws.remove() inside a callback arrive as markers in the
+            # object stream, so they stay ordered with the geometry around them.
+            action = obj.get("action")
+            if action == "clear":
                 self._buffer.clear()
+                continue
+            if action == "remove":
+                self._drop(obj.get("name"))
                 continue
             name = obj.get("name")
             target = obj.get("target")
+            if obj.get("type") == "edge_child" and target:
+                self._buffer[f"{target}::edges"] = obj
+                continue
             if target and name:
                 # A quantity: keyed by its target, so the same field name on two
                 # meshes does not collide. show=True also shows the target.
@@ -54,7 +60,20 @@ class BroadcastMixin:
                     self._buffer[name] = {**self._buffer[name], "show": bool(obj["enabled"])}
                 continue
             if name:
+                # (Re-)registering a structure replaces it, quantities included (as the
+                # viewer does, and Polyscope): drop name::*, and append it at the end
+                # so its new quantities, pushed after it, also replay after it.
+                self._drop(name)
                 self._buffer[name] = obj
+
+    def _drop(self, name) -> None:
+        """Forget a structure and everything attached to it (name::*)."""
+        if not name:
+            return
+        self._buffer.pop(name, None)
+        prefix = f"{name}::"
+        for key in [k for k in self._buffer if k.startswith(prefix)]:
+            del self._buffer[key]
 
     def _buffer_snapshot(self) -> list[dict]:
         return list(self._buffer.values())
@@ -78,10 +97,13 @@ class BroadcastMixin:
     SEND_TIMEOUT = 10.0
 
     async def _broadcast(self, msg: dict) -> None:
+        if self._clients:
+            await self._broadcast_encoded(await encode_async(msg))   # once for all clients
+
+    async def _broadcast_encoded(self, data) -> None:
         clients = list(self._clients)
         if not clients:
             return
-        data = await encode_async(msg)      # once for all clients
 
         async def send_one(ws):
             await asyncio.wait_for(send_encoded(ws, data), timeout=self.SEND_TIMEOUT)
@@ -99,16 +121,18 @@ class BroadcastMixin:
             self._idle_event.set()
 
     async def push(self, objects: list[dict]) -> None:
-        """Merge objects into buffer and broadcast."""
+        """Merge objects into buffer and broadcast. Raises (and buffers nothing) when
+        an object cannot be encoded: buffered, it would break every later snapshot."""
+        data = await encode_async({"action": "scene_update", "objects": objects})
         self._buffer_objects(objects)
-        await self._broadcast({"action": "scene_update", "objects": objects})
+        await self._broadcast_encoded(data)
 
     async def do_clear(self) -> None:
         self._buffer.clear()
         await self._broadcast({"action": "clear"})
 
     async def do_remove(self, name: str) -> None:
-        self._buffer.pop(name, None)
+        self._drop(name)
         await self._broadcast({"action": "remove", "name": name})
 
     async def wait_until_idle(self, timeout: float = 300.0,

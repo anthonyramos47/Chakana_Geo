@@ -333,3 +333,92 @@ def test_info_reports_a_server_instance():
         out["instance"] = requests.get(kv.url() + "/api/_info").json().get("instance")
     ''')
     assert isinstance(out["instance"], str) and len(out["instance"]) == 32
+
+
+def test_quantities_are_checked_against_their_target():
+    out = _run('''
+        kv.init()
+        kv.register_surface_mesh("M", np.zeros((4, 3)), [[0, 1, 2], [0, 2, 3]])
+        kv.register_point_cloud("P", np.zeros((5, 3)))
+        errors = {}
+        for label, call in [
+            ("typo", lambda: kv.add_scalar_quantity("Mesh", "s", np.zeros(4))),
+            ("length", lambda: kv.add_scalar_quantity("M", "s", np.zeros(3))),
+            ("faces", lambda: kv.add_scalar_quantity("M", "s", np.zeros(4), defined_on="faces")),
+            ("on points", lambda: kv.add_scalar_quantity("P", "s", np.zeros(5))),
+            ("vector length", lambda: kv.add_vector_quantity("P", "v", np.zeros((4, 3)))),
+        ]:
+            try:
+                call(); errors[label] = None
+            except ValueError as e:
+                errors[label] = str(e)
+        kv.add_scalar_quantity("M", "ok", np.zeros(4))
+        kv.add_scalar_quantity("M", "okf", np.zeros(2), defined_on="faces")
+        kv.add_vector_quantity("P", "v", np.ones((5, 3)))
+        kv.remove("M")
+        try:
+            kv.add_scalar_quantity("M", "s", np.zeros(4)); errors["removed"] = None
+        except ValueError as e:
+            errors["removed"] = str(e)
+        try:
+            kv.show(app="typo", block=False); errors["app"] = None
+        except ValueError as e:
+            errors["app"] = str(e)
+        out["errors"] = errors
+    ''')
+    e = out["errors"]
+    assert "no structure named 'Mesh'" in e["typo"] and "registered: M, P" in e["typo"]
+    assert "has 4 vertices, got 3" in e["length"]
+    assert "has 2 faces, got 4" in e["faces"]
+    assert "is a point_cloud" in e["on points"]
+    assert "has 5 vertices, got 4" in e["vector length"]
+    assert "no structure named 'M'" in e["removed"]
+    assert "no app named 'typo'" in e["app"]
+
+
+def test_buffer_matches_the_viewer_after_remove_and_reregister():
+    out = _run('''
+        kv.init()
+        base = kv.url()
+        load = lambda: [o.get("name") if not o.get("target") else o["target"] + "::" + o["name"]
+                        for o in requests.post(base + "/api/script/load").json()["objects"]]
+        kv.register_surface_mesh("M", np.zeros((3, 3)), [[0, 1, 2]])
+        kv.add_scalar_quantity("M", "s", np.zeros(3))
+        kv.register_surface_mesh("M", np.zeros((4, 3)), [[0, 1, 2], [0, 2, 3]])   # replaces
+        out["after_reregister"] = load()
+        kv.add_scalar_quantity("M", "s", np.zeros(4))
+        kv.remove("M")
+        out["after_remove"] = load()
+    ''')
+    assert out["after_reregister"] == ["M"]
+    assert out["after_remove"] == []
+
+
+def test_remove_and_clear_inside_a_callback_survive_reload():
+    out = _run('''
+        kv.init()
+        kv.register_point_cloud("Top", np.zeros((1, 3)))             # main thread
+        def gui():
+            kv.register_point_cloud("Always", np.zeros((1, 3)))   # outside any button
+            if kv.imgui.button("Make"):
+                kv.register_point_cloud("A", np.zeros((1, 3)))
+                kv.register_point_cloud("B", np.zeros((1, 3)))
+                kv.remove("A")
+            if kv.imgui.button("Clear"):
+                kv.clear()
+        kv.set_user_callback(gui, app_name="cb")
+        base = kv.url()
+        names = lambda app: [o["name"] for o in requests.post(
+            base + f"/api/{app}/load").json()["objects"]]
+        out["script_after_register"] = names("script")
+        with connect(base.replace("http", "ws") + "/api/cb/ws") as ws:
+            ws.send(json.dumps({"action": "_callback", "trigger": "Make", "state": {}}))
+            recv_until(ws, lambda m: m.get("action") == "scene_update")
+            out["cb_after_make"] = names("cb")
+            ws.send(json.dumps({"action": "_callback", "trigger": "Clear", "state": {}}))
+            recv_until(ws, lambda m: m.get("action") == "scene_update")
+        out["after_clear"] = names("cb") + names("script")
+    ''')
+    assert out["script_after_register"] == ["Top"]          # schema capture pushed nothing
+    assert "A" not in out["cb_after_make"] and "B" in out["cb_after_make"]
+    assert out["after_clear"] == []

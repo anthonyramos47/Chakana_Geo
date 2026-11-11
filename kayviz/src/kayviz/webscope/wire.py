@@ -128,6 +128,14 @@ async def send(ws, msg) -> None:
     await send_encoded(ws, await encode_async(msg))
 
 
+def track_scene(msg) -> None:
+    """Tell the scripting API which structures a GUI app sent to the browser, so
+    kv.add_*_quantity on them is accepted (see script._track)."""
+    if isinstance(msg, dict) and isinstance(msg.get("objects"), list):
+        from . import script
+        script._track(msg["objects"])
+
+
 class Socket:
     """The WebSocket handed to streaming action handlers. Their ``send_json``
     goes through `send`, so serializer dicts with numpy arrays work there too.
@@ -137,6 +145,7 @@ class Socket:
         self._ws = ws
 
     async def send_json(self, data, mode: str = "text") -> None:
+        track_scene(data)
         await send(self._ws, data)
 
     def __getattr__(self, name):

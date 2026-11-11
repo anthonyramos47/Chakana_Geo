@@ -505,6 +505,7 @@ export class Viewer {
       // stream (rather than its own message) so it stays ordered with the
       // geometry pushed after it in the same callback.
       if (obj.action === 'clear') { this.clearAll(); continue; }
+      if (obj.action === 'remove') { this._remove(obj.name); this._emit(); continue; }
       try { shown = this._applyObject(obj, hide) || shown; }
       catch (err) {
         // one bad object must not lose the rest of the message

@@ -76,7 +76,8 @@ class ScriptApp(BroadcastMixin, GUIApp):
                 await send(ws, {"action": "scene_update",
                                 "objects": self._buffer_snapshot()})
             except Exception:
-                pass
+                import traceback
+                traceback.print_exc()         # the tab starts empty; say why
 
         try:
             while True:

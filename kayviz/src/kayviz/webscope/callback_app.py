@@ -34,7 +34,8 @@ from fastapi import WebSocket, WebSocketDisconnect
 
 from .app import GUIApp
 from .broadcast_mixin import BroadcastMixin
-from .wire import send
+from .wire import send, encode_async
+from . import registry as _registry
 from .state_schema import gui_state
 from kayviz.webscope import imgui as _imgui
 
@@ -88,7 +89,10 @@ class CallbackApp(BroadcastMixin, GUIApp):
     def _capture_schema(self) -> None:
         ctx = _imgui._enter_schema_mode()
         try:
-            self._callback_fn()
+            # gui() runs once here only to list its widgets: anything it pushes on
+            # the way (registrations outside a button branch) is dropped, not sent.
+            with _CallbackPushCapture(self, []):
+                self._callback_fn()
         except Exception:
             # Must not crash the server, but widgets after the error are missing.
             print(f"[kayviz] {self.name}: the GUI callback raised while its widgets "
@@ -124,7 +128,7 @@ class CallbackApp(BroadcastMixin, GUIApp):
                 await send(ws, {"action": "scene_update",
                                 "objects": self._buffer_snapshot()})
             except Exception:
-                pass
+                traceback.print_exc()         # the tab starts empty; say why
 
         # Widget events are queued per connection and run one after another by
         # _drain while this loop keeps reading, so a newer value of a slider
@@ -198,10 +202,23 @@ class CallbackApp(BroadcastMixin, GUIApp):
                 pass
             return
         if pushed:
+            try:
+                data = await encode_async({"action": "scene_update", "objects": pushed})
+            except Exception as exc:          # nothing buffered: it would break reloads
+                traceback.print_exc()
+                await send(ws, {"action": "error", "message": f"could not send the scene: {exc}"})
+                return
             # Buffered on the loop (the snapshot for new tabs is read there too),
             # and sent to every tab of this app, not only the one that clicked.
             self._buffer_objects(pushed)
-            await self._broadcast({"action": "scene_update", "objects": pushed})
+            # clear/remove inside the callback also cleared objects pushed from the
+            # main thread live (one viewer shows both); keep the script buffer in step
+            # so a reload shows the same scene.
+            markers = [o for o in pushed if o.get("action") in ("clear", "remove")]
+            script = _registry.get_app("script")
+            if markers and script is not None and script is not self:
+                script._buffer_objects(markers)
+            await self._broadcast_encoded(data)
 
     def _call_user(self, data: dict) -> tuple[list[dict], str | None]:
         """

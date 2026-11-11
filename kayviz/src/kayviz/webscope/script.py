@@ -74,6 +74,61 @@ def _set_push_sink(sink: Optional[callable]) -> None:
 # App opened by show(): the last app registered from this process.
 _default_app: Optional[str] = None
 
+# Structures pushed from this process: name -> {"type", "n_vertices", "n_faces"}.
+# Lets add_*_quantity reject a missing target or a wrong length in Python instead
+# of the browser dropping the quantity (or colouring the mesh with garbage).
+_structures: dict = {}
+_structures_lock = threading.Lock()
+_STRUCTURE_TYPES = ("surface_mesh", "point_cloud", "curve_network", "vector_field")
+
+# Built-in materials of static/lib/MaterialLibrary.js (custom ones registered in the
+# browser also work; an unknown name only warns).
+KNOWN_MATERIALS = ("physical", "lambert", "phong", "blinn_phong", "toon", "flat",
+                   "normal", "depth", "wireframe", "glass")
+
+
+def _track(objects) -> None:
+    """Record structures (and their removal) as they are pushed."""
+    with _structures_lock:
+        for o in objects:
+            action, kind, name = o.get("action"), o.get("type"), o.get("name")
+            if action == "clear":
+                _structures.clear()
+            elif action == "remove":
+                _structures.pop(name, None)
+            elif kind in _STRUCTURE_TYPES and name:
+                info = {"type": kind}
+                if kind == "surface_mesh":
+                    info["n_vertices"] = len(o["vertices"]) // 3
+                    tpf = o.get("tris_per_face")
+                    info["n_faces"] = (len(tpf) if tpf is not None
+                                       else len(o["faces"]) // max(1, o.get("face_size", 3)))
+                elif kind == "point_cloud":
+                    info["n_vertices"] = len(o["points"]) // 3
+                elif kind == "curve_network":
+                    info["n_vertices"] = len(o["vertices"]) // 3
+                _structures[name] = info
+
+
+def _check_quantity(func: str, target: str, n_values: int, defined_on: str,
+                    allowed: tuple) -> None:
+    """Raise if *target* is unknown, of the wrong type, or *n_values* does not match."""
+    if _mode == "attached":
+        return              # the target may come from another process
+    with _structures_lock:
+        info = _structures.get(target)
+        known = sorted(_structures)
+    if info is None:
+        raise ValueError(f"{func}: no structure named {target!r} "
+                         f"(registered: {', '.join(known) or 'none'})")
+    if info["type"] not in allowed:
+        raise ValueError(f"{func}: {target!r} is a {info['type']}; this quantity needs a "
+                         f"{' or '.join(allowed)}")
+    expected = info.get("n_faces" if defined_on == "faces" else "n_vertices")
+    if expected is not None and n_values != expected:
+        raise ValueError(f"{func}: {target!r} has {expected} {defined_on}, "
+                         f"got {n_values} values")
+
 
 # ── Public API ────────────────────────────────────────────────────────────────
 
@@ -136,6 +191,11 @@ def register_surface_mesh(name: str, vertices, faces,
     Edges are always drawn as thin tubes (so other objects occlude them); edge_radius=0
     picks 3% of the median edge length. The shader is global (scene panel "Shader") unless
     material names one for this mesh, e.g. material="glass"."""
+    if material is not None and material not in KNOWN_MATERIALS:
+        import warnings
+        warnings.warn(f"{name}: unknown material {material!r} (built-in: "
+                      f"{', '.join(KNOWN_MATERIALS)}); unless a custom shader of that name "
+                      f"is registered in the browser, the global shader is used", stacklevel=2)
     result = ser.surface_mesh(name, vertices, faces,
                               color=color, opacity=opacity,
                               show_edges=show_edges, edge_color=edge_color,
@@ -167,7 +227,10 @@ def add_scalar_quantity(target: str, field_name: str, values,
     show: None (default) follows the target; True colours the target with it and shows the
     target if it was hidden; False adds it without colouring the mesh.
     """
-    _push(ser.scalar_quantity(target, field_name, values, defined_on=defined_on, show=show))
+    d = ser.scalar_quantity(target, field_name, values, defined_on=defined_on, show=show)
+    _check_quantity("add_scalar_quantity", target, len(d["values"]), defined_on,
+                    ("surface_mesh",))
+    _push(d)
 
 
 def add_vector_quantity(target: str, field_name: str, vectors,
@@ -190,8 +253,11 @@ def add_vector_quantity(target: str, field_name: str, vectors,
         color:      [r, g, b] in 0-1. None (default): the next colour of the viewer's
                     palette not used by the target's other vector quantities.
     """
-    _push(ser.vector_quantity(target, field_name, vectors, defined_on=defined_on,
-                              length=length, radius=radius, show=show, color=color))
+    d = ser.vector_quantity(target, field_name, vectors, defined_on=defined_on,
+                            length=length, radius=radius, show=show, color=color)
+    _check_quantity("add_vector_quantity", target, len(d["vectors"]) // 3, defined_on,
+                    ("surface_mesh",) if defined_on == "faces" else ("surface_mesh", "point_cloud"))
+    _push(d)
 
 
 def register_vector_field(name: str, origins, vectors,
@@ -217,6 +283,7 @@ def push_objects(objects: list) -> None:
     """Push a list of pre-built serializer dicts (from Scene or ser.lmesh_scene etc.)."""
     if not objects:
         return
+    _track(objects)
     sink = _push_sink()
     if sink is not None:
         sink(objects)
@@ -230,7 +297,13 @@ def set_enabled(name: str, enabled: bool) -> None:
 
 
 def remove(name: str) -> None:
-    """Remove one named object from the scene."""
+    """Remove one named object (and its quantities) from the scene."""
+    marker = [{"action": "remove", "name": name}]
+    _track(marker)
+    sink = _push_sink()
+    if sink is not None:            # inside a user callback: its app's buffer too
+        sink(marker)
+        return
     _send("remove", name=name)
 
 
@@ -239,6 +312,7 @@ def clear() -> None:
     # Inside a user callback (CallbackApp), geometry is captured into a local
     # sink rather than sent to the script channel — route the clear through
     # the same hook so it clears that app's buffer.
+    _track([{"action": "clear"}])
     sink = _push_sink()
     if sink is not None:
         sink([{"action": "clear"}])
@@ -544,6 +618,9 @@ def show(block: "str | bool" = "auto", app: str = None) -> None:
         block = "IPython" not in sys.modules
 
     name = app or _default_app or "script"
+    if _mode == "local" and _registry.get_app(name) is None:
+        raise ValueError(f"show: no app named {name!r} "
+                         f"(apps: {', '.join(_registry.app_names())})")
     viewer_url = f"{_url}/?app={name}"
     if name in _opened:
         print(f"[kayviz] Viewer already open — {viewer_url}", flush=True)
@@ -656,6 +733,8 @@ def _on_server_stopped() -> None:
     if _mode == "local":
         _url, _server, _mode = None, None, None
     _opened.clear()
+    with _structures_lock:
+        _structures.clear()
     script = _registry.get_app("script")
     if script is not None:                      # start the next one empty
         script._buffer.clear()

@@ -18,7 +18,7 @@ import traceback
 from typing import Callable
 from fastapi import WebSocket, WebSocketDisconnect
 from .state_schema import to_json, apply_client_state as _apply_cs
-from .wire import send, Socket
+from .wire import send, Socket, track_scene
 
 
 async def _send_error(ws: WebSocket, exc: Exception) -> None:
@@ -148,6 +148,7 @@ class GUIApp:
             async with self._handler_lock:
                 result = await asyncio.to_thread(fn, self.state, data)
             if result is not None:
+                track_scene(result)
                 await send(ws, result)
         except Exception as exc:
             traceback.print_exc()

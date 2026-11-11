@@ -14,6 +14,8 @@ belong in the project that defines the geometry and return lists of these dicts.
 
 from __future__ import annotations
 
+import warnings
+
 import numpy as np
 
 
@@ -29,20 +31,134 @@ def _i32(a) -> np.ndarray:
     return np.array(a, dtype=np.int32, copy=True).ravel()
 
 
+# ── Input checks ──────────────────────────────────────────────────────────────
+# Wrong input used to reach the browser and draw garbage (or nothing) without a
+# word. These raise ValueError naming the object, before anything is sent.
+
+def _array(a, name: str, what: str) -> np.ndarray:
+    try:
+        arr = np.asarray(a)
+    except ValueError as e:                     # ragged nested lists
+        raise ValueError(f"{name}: {what} must be a numeric array ({e})") from None
+    if arr.dtype.kind == "c":
+        raise ValueError(f"{name}: {what} must be real, got complex values")
+    if arr.dtype.kind not in "biuf":
+        raise ValueError(f"{name}: {what} must be numeric, got dtype {arr.dtype}")
+    return arr
+
+
+def _points(a, name: str, what: str = "vertices") -> np.ndarray:
+    """(N, 3) real coordinates -> flat float32 copy. Non-finite values warn."""
+    arr = _array(a, name, what)
+    if arr.ndim != 2 or arr.shape[1] != 3:
+        hint = (" (2D points: add a zero z column, np.c_[P, np.zeros(len(P))])"
+                if arr.ndim == 2 and arr.shape[1] == 2 else "")
+        raise ValueError(f"{name}: {what} must have shape (N, 3), got {arr.shape}{hint}")
+    bad = ~np.isfinite(arr).all(axis=1)
+    if bad.any():
+        warnings.warn(f"{name}: {int(bad.sum())} of {len(arr)} {what} are NaN or infinite",
+                      stacklevel=3)
+    return _f32(arr)
+
+
+def _indices(a, name: str, what: str, n: int, width: int | None = None) -> np.ndarray:
+    """Integer index array (int64), every entry in [0, n)."""
+    arr = _array(a, name, what)
+    if arr.dtype.kind == "f":
+        if not np.array_equal(arr, np.round(arr)):
+            raise ValueError(f"{name}: {what} must be integers")
+        arr = arr.astype(np.int64)
+    arr = arr.astype(np.int64, copy=False)
+    if width is not None and (arr.ndim != 2 or arr.shape[1] != width):
+        raise ValueError(f"{name}: {what} must have shape (M, {width}), got {arr.shape}")
+    if arr.size and (arr.min() < 0 or arr.max() >= n):
+        raise ValueError(f"{name}: {what} index out of range: values in "
+                         f"[{arr.min()}, {arr.max()}] for {n} vertices")
+    return arr
+
+
+def _polygons(faces, name: str, n: int):
+    """Faces as a uniform (F, k) int64 array, or a list of int64 polygons when sizes
+    differ. In a 2D array, -1 at the end of a row pads a shorter polygon."""
+    if faces is None:
+        raise ValueError(f"{name}: faces are missing")
+    try:
+        F = _array(faces, name, "faces")
+    except ValueError:
+        F = None                                # ragged list of polygons
+    if F is not None and F.ndim == 1 and len(F) and F.dtype != object:
+        raise ValueError(f"{name}: faces must be a list of polygons, e.g. [[0, 1, 2]], "
+                         f"not a flat list of indices")
+
+    if F is not None and F.ndim == 2:
+        if F.dtype.kind == "f" and not np.array_equal(F, np.round(F)):
+            raise ValueError(f"{name}: faces must be integers")
+        F = F.astype(np.int64, copy=False)
+        if not (F < 0).any():
+            if F.shape[1] < 3:
+                raise ValueError(f"{name}: faces need at least 3 vertices, got {F.shape[1]}")
+            _check_polygon_range(F, name, n)
+            return F
+        pad = F == -1
+        # -1 pads the end of a row only: once -1, -1 up to the end of the row
+        if (F < -1).any() or (pad[:, :-1] & ~pad[:, 1:]).any():
+            raise ValueError(f"{name}: faces contain negative indices "
+                             f"(-1 is allowed only as padding at the end of a row)")
+        faces = [row[row >= 0] for row in F]
+
+    polys = [_indices(f, name, "faces", n).ravel() for f in faces]
+    small = [i for i, f in enumerate(polys) if len(f) < 3]
+    if small:
+        raise ValueError(f"{name}: {len(small)} face(s) have fewer than 3 vertices "
+                         f"(first: face {small[0]})")
+    return polys
+
+
+def _check_polygon_range(F, name, n):
+    if F.size and (F.min() < 0 or F.max() >= n):
+        raise ValueError(f"{name}: faces index out of range: values in "
+                         f"[{F.min()}, {F.max()}] for {n} vertices")
+
+
+def _rgb(c, name: str, what: str = "color") -> list:
+    """Colour as 3 floats in [0, 1]."""
+    try:
+        rgb = [float(x) for x in c]
+    except (TypeError, ValueError):
+        raise ValueError(f"{name}: {what} must be 3 numbers in [0, 1], got {c!r}") from None
+    if len(rgb) != 3:
+        raise ValueError(f"{name}: {what} must have 3 components, got {len(rgb)}")
+    if any(x < 0 or x > 1 for x in rgb):
+        hint = " (0-255 values: divide by 255)" if all(0 <= x <= 255 for x in rgb) else ""
+        raise ValueError(f"{name}: {what} components must be in [0, 1], got {tuple(rgb)}{hint}")
+    return rgb
+
+
+def _unit(x, name: str, what: str) -> float:
+    x = float(x)
+    if not 0.0 <= x <= 1.0:
+        raise ValueError(f"{name}: {what} must be in [0, 1], got {x}")
+    return x
+
+
+DEFINED_ON = ("vertices", "faces")
+
+
+def _defined_on(d, name):
+    if d not in DEFINED_ON:
+        raise ValueError(f"{name}: defined_on must be 'vertices' or 'faces', got {d!r}")
+    return d
+
+
 # ── Core geometry types ───────────────────────────────────────────────────────
 
-def _polygon_edges(faces) -> np.ndarray:
-    """Unique undirected edges (m, 2) of the polygons, int32."""
-    try:
-        F = np.asarray(faces, dtype=np.int64)
-    except (ValueError, TypeError):
-        F = None
-    if F is not None and F.ndim == 2 and F.shape[0]:
+def _polygon_edges(F) -> np.ndarray:
+    """Unique undirected edges (m, 2) of validated polygons (see _polygons), int32."""
+    if isinstance(F, np.ndarray):
         E = np.stack([F, np.roll(F, -1, axis=1)], axis=-1).reshape(-1, 2)
     else:                                       # ragged polygons
-        E = np.array([(f[k], f[(k + 1) % len(f)])
-                      for f in (np.asarray(f).ravel() for f in faces)
-                      for k in range(len(f))], dtype=np.int64).reshape(-1, 2)
+        E = np.concatenate([np.stack([f, np.roll(f, -1)], axis=1) for f in F]) \
+            if len(F) else np.zeros((0, 2), np.int64)
     E.sort(axis=1)
     if not len(E):
         return np.zeros((0, 2), np.int32)
@@ -70,25 +186,17 @@ def surface_mesh(name: str, vertices, faces, color=(0.8, 0.8, 0.8),
     Arrays are numpy float32 / int32 (sent to the browser as binary, see
     kayviz.webscope.wire); ``kayviz.webscope.wire.jsonable`` turns them into lists.
     """
-    verts = _f32(vertices)
-    poly_edges = _polygon_edges(faces)
-
-    try:
-        F = np.asarray(faces, dtype=np.int64)
-        uniform = F.ndim == 2
-    except (ValueError, TypeError):
-        uniform = False
-    first_len = F.shape[1] if uniform and F.size else (len(faces[0]) if len(faces) else 3)
+    verts = _points(vertices, name)
+    F = _polygons(faces, name, len(verts) // 3)
+    poly_edges = _polygon_edges(F)
+    uniform = isinstance(F, np.ndarray)
+    first_len = F.shape[1] if uniform else 3
 
     tris_per_face = None
     if not uniform or (face_size is None and first_len > 4):
-        faces_list = [np.asarray(f).ravel().tolist() for f in faces]
-        tris = []
-        tris_per_face = []
-        for f in faces_list:
-            for t in range(1, len(f) - 1):
-                tris.append([f[0], f[t], f[t + 1]])
-            tris_per_face.append(len(f) - 2)
+        polys = F if not uniform else list(F)
+        tris = [(f[0], f[t], f[t + 1]) for f in polys for t in range(1, len(f) - 1)]
+        tris_per_face = [len(f) - 2 for f in polys]
         faces_arr = np.array(tris, dtype=np.int32).reshape(-1)
         fs = 3
     else:
@@ -103,13 +211,13 @@ def surface_mesh(name: str, vertices, faces, color=(0.8, 0.8, 0.8),
         "face_size":     int(fs),
         "tris_per_face": None if tris_per_face is None else np.array(tris_per_face, np.int32),
         "poly_edges":    poly_edges.ravel(),
-        "color":         [float(c) for c in color],
-        "opacity":       float(opacity),
+        "color":         _rgb(color, name),
+        "opacity":       _unit(opacity, name, "opacity"),
         "show_edges":    bool(show_edges),
         "show":          bool(show),
     }
     if show_edges:
-        mesh_dict["edge_color"]  = [float(c) for c in edge_color]
+        mesh_dict["edge_color"]  = _rgb(edge_color, name, "edge_color")
         mesh_dict["edge_radius"] = float(edge_radius)
     if material is not None:
         mesh_dict["material"] = str(material)
@@ -119,12 +227,13 @@ def surface_mesh(name: str, vertices, faces, color=(0.8, 0.8, 0.8),
 def curve_network(name: str, vertices, edges, color=(0.8, 0.2, 0.2), radius: float = 0.002,
                   show: bool = True):
     """Mirrors ps.register_curve_network(). show=False registers the object hidden (its checkbox in the scene panel unticked)."""
+    verts = _points(vertices, name)
     return {
         "type":     "curve_network",
         "name":     name,
-        "vertices": _f32(vertices),
-        "edges":    _i32(edges),
-        "color":    [float(c) for c in color],
+        "vertices": verts,
+        "edges":    _i32(_indices(edges, name, "edges", len(verts) // 3, width=2)),
+        "color":    _rgb(color, name),
         "radius":   float(radius),
         "show":     bool(show),
     }
@@ -135,8 +244,8 @@ def point_cloud(name: str, points, color=(0.2, 0.5, 0.8), radius=0.0005, show: b
     return {
         "type":   "point_cloud",
         "name":   name,
-        "points": _f32(points),
-        "color":  [float(c) for c in color],
+        "points": _points(points, name, "points"),
+        "color":  _rgb(color, name),
         "radius": float(radius),
         "show":   bool(show),
     }
@@ -145,12 +254,13 @@ def point_cloud(name: str, points, color=(0.2, 0.5, 0.8), radius=0.0005, show: b
 def edge_child(target_name: str, vertices, edges,
                color=(0.1, 0.1, 0.1), radius: float = 0.0):
     """Edge overlay attached as a child of an existing surface_mesh."""
+    verts = _points(vertices, target_name)
     return {
         "type":     "edge_child",
         "target":   target_name,
-        "vertices": _f32(vertices),
-        "edges":    _i32(edges),
-        "color":    [float(c) for c in color],
+        "vertices": verts,
+        "edges":    _i32(_indices(edges, target_name, "edges", len(verts) // 3, width=2)),
+        "color":    _rgb(color, target_name, "edge color"),
         "radius":   float(radius),
     }
 
@@ -163,12 +273,16 @@ def scalar_quantity(target_name: str, field_name: str, values, defined_on="verti
     shows the parent; False adds the quantity without displaying it.
     For a scalar, displaying it means colouring the mesh with it.
     """
+    vals = _array(values, f"{target_name}::{field_name}", "values")
+    if vals.ndim != 1:
+        raise ValueError(f"{target_name}::{field_name}: values must be one number per "
+                         f"{defined_on[:-1]}, got shape {vals.shape}")
     d = {
         "type":       "scalar_quantity",
         "target":     target_name,
         "name":       field_name,
-        "defined_on": defined_on,
-        "values":     _f32(values),
+        "defined_on": _defined_on(defined_on, f"{target_name}::{field_name}"),
+        "values":     _f32(vals),          # NaN allowed: drawn in the NaN colour
     }
     if show is not None:
         d["show"] = bool(show)
@@ -189,19 +303,20 @@ def vector_quantity(target_name: str, field_name: str, vectors, defined_on="vert
     """
     if radius is None:
         radius = length * 0.04
+    q = f"{target_name}::{field_name}"
     d = {
         "type":       "vector_quantity",
         "target":     target_name,
         "name":       field_name,
-        "defined_on": defined_on,
-        "vectors":    _f32(vectors),
+        "defined_on": _defined_on(defined_on, q),
+        "vectors":    _points(vectors, q, "vectors"),
         "length":     float(length),
         "radius":     float(radius),
     }
     if show is not None:
         d["show"] = bool(show)
     if color is not None:
-        d["color"] = [float(c) for c in color]
+        d["color"] = _rgb(color, q)
     return d
 
 
@@ -213,14 +328,17 @@ def vector_field(name: str, origins, vectors, length: float = 0.05,
     """
     if radius is None:
         radius = length * 0.04
+    o, v = _points(origins, name, "origins"), _points(vectors, name, "vectors")
+    if len(o) != len(v):
+        raise ValueError(f"{name}: {len(o) // 3} origins but {len(v) // 3} vectors")
     return {
         "type":    "vector_field",
         "name":    name,
-        "origins": _f32(origins),
-        "vectors": _f32(vectors),
+        "origins": o,
+        "vectors": v,
         "length":  float(length),
         "radius":  float(radius),
-        "color":   [float(c) for c in color],
+        "color":   _rgb(color, name),
         "show":    bool(show),
     }
 

@@ -225,6 +225,17 @@ Fields sharing a prefix (`sphere_radius`, `sphere_center`) are grouped in one fo
 { "action": "error", "message": "…" }
 ```
 
+**Input checks.** The serializers raise `ValueError` naming the object for wrong input:
+vertices / points / vectors not `(N, 3)` (2D points get a hint to add a z column), complex
+or non-numeric arrays, face or edge indices out of range or not integers, faces with fewer
+than 3 vertices, a flat index list instead of polygons, colours outside [0, 1] (0-255 values
+get a hint), opacity outside [0, 1], `defined_on` other than `"vertices"` / `"faces"`. In a 2D
+faces array, `-1` at the end of a row pads a shorter polygon. NaN vertices only warn; NaN
+scalar values are drawn in a grey NaN colour. `kv.add_*_quantity` also checks the target:
+it must be registered (removed or cleared ones are gone), of a fitting type (scalars on
+surface meshes; vectors on meshes or point clouds) and have one value per vertex / face.
+Re-registering a structure replaces it with its quantities, as `kv.remove` drops them.
+
 Object dicts in `"objects"` (built by `kayviz.serializers`). Arrays are numpy float32 / int32
 (always copies of the caller's arrays). On the WebSocket a message with arrays is one
 binary frame (JSON header + raw arrays, see `kayviz/webscope/wire.py`); over HTTP they
