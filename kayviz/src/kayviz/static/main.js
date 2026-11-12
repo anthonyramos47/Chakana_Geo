@@ -82,8 +82,10 @@ controls.update();
 const ambient   = new THREE.AmbientLight(0xffffff, 0.5);
 const keyLight  = new THREE.DirectionalLight(0xffffff, 1.2);   // bumped for ACES curve
 const fillLight = new THREE.DirectionalLight(0xffffff, 0.5);   // bumped for ACES curve
-keyLight.position.copy(fromYUp(4, 8, 6));
-fillLight.position.copy(fromYUp(-4, 2, -4));
+// Key light from above, behind-left of the default view: its (studio) shadows fall
+// towards the camera, where they show; the fill lights the faces turned to the camera.
+keyLight.position.copy(fromYUp(-3, 8, -2));
+fillLight.position.copy(fromYUp(4, 3, 5));
 scene.add(ambient, keyLight, fillLight);
 
 // Environment map (procedural room, no texture download): only MeshStandard/MeshPhysical
