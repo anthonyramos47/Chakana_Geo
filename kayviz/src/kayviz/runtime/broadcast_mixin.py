@@ -37,6 +37,10 @@ class BroadcastMixin:
     SEND_TIMEOUT = 10.0
     # Messages queued for one tab before it is dropped (it reloads the snapshot).
     MAX_PENDING = 16
+    # Bytes written to a tab's connection but not yet taken by it. uvicorn's
+    # websockets-sansio protocol never waits for the socket, so without this a tab
+    # that stops reading made the server keep every message for it (unbounded).
+    MAX_UNSENT = 32 * 1024 * 1024
 
     def _init_broadcast(self):
         self._buffer: dict[str, dict] = {}
@@ -155,10 +159,28 @@ class BroadcastMixin:
             while True:
                 data = await queue.get()
                 await asyncio.wait_for(send_encoded(ws, data), timeout=self.SEND_TIMEOUT)
+                if self._unsent(ws) > self.MAX_UNSENT:     # no await when it keeps up
+                    await asyncio.wait_for(self._drained(ws), timeout=self.SEND_TIMEOUT)
         except asyncio.CancelledError:
             raise
         except Exception:
             await self._drop_client(ws)
+
+    @staticmethod
+    def _unsent(ws: WebSocket) -> int:
+        """Bytes written to the tab's connection that it has not taken yet."""
+        # Put there by server._TransportMiddleware; other servers: 0, nothing to wait for.
+        transport = ws.scope.get("kayviz.transport")
+        size = getattr(transport, "get_write_buffer_size", None)
+        return size() if size is not None else 0
+
+    async def _drained(self, ws: WebSocket) -> None:
+        """Wait until the tab has taken all but MAX_UNSENT bytes of what was written."""
+        transport = ws.scope.get("kayviz.transport")
+        while self._unsent(ws) > self.MAX_UNSENT:
+            if transport.is_closing():
+                raise ConnectionError("tab connection closed")
+            await asyncio.sleep(0.02)
 
     async def _drop_client(self, ws: WebSocket) -> None:
         self._remove_client(ws)

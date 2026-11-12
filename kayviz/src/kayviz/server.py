@@ -47,6 +47,22 @@ class _NoCacheMiddleware(BaseHTTPMiddleware):
         return response
 
 
+class _TransportMiddleware:
+    """Hand a WebSocket's transport to the app (scope["kayviz.transport"]), so the
+    sender can wait while a tab has not taken what was written (BroadcastMixin).
+    Outermost: inner layers wrap uvicorn's send() and hide its protocol."""
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] == "websocket":
+            transport = getattr(getattr(send, "__self__", None), "transport", None)
+            if transport is not None:
+                scope = {**scope, "kayviz.transport": transport}
+        await self.app(scope, receive, send)
+
+
 class _IsolationMiddleware(BaseHTTPMiddleware):
     """Cross-origin isolation: performance.measureUserAgentSpecificMemory() needs it."""
     async def dispatch(self, request: Request, call_next):
@@ -106,7 +122,8 @@ def create_app(apps=(), shared: bool = False, default_app: str | None = None,
     fastapi_app.add_middleware(_NoCacheMiddleware)
     if isolated:
         fastapi_app.add_middleware(_IsolationMiddleware)
-    fastapi_app.add_middleware(LocalOnlyMiddleware, network=network)   # outermost
+    fastapi_app.add_middleware(LocalOnlyMiddleware, network=network)
+    fastapi_app.add_middleware(_TransportMiddleware)                   # outermost
     fastapi_app.state.default_app = default_app
     # Tabs left from an earlier server reconnect to a new one on the same port;
     # a different instance id tells them to reload (fresh panel and scene).
