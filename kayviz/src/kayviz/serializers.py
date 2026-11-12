@@ -15,6 +15,7 @@ belong in the project that defines the geometry and return lists of these dicts.
 from __future__ import annotations
 
 import warnings
+from typing import NamedTuple
 
 import numpy as np
 
@@ -77,9 +78,17 @@ def _indices(a, name: str, what: str, n: int, width: int | None = None) -> np.nd
     return arr
 
 
+class _Ragged(NamedTuple):
+    """Polygons of different sizes: their indices one after another, and their sizes.
+    One flat array instead of one small array per polygon keeps the work vectorized."""
+    flat: np.ndarray        # int64
+    lens: np.ndarray        # int64
+
+
 def _polygons(faces, name: str, n: int):
-    """Faces as a uniform (F, k) int64 array, or a list of int64 polygons when sizes
-    differ. In a 2D array, -1 at the end of a row pads a shorter polygon."""
+    """Faces as a uniform (F, k) integer array, or _Ragged when sizes differ. In a 2D
+    array, -1 at the end of a row pads a shorter polygon. A uniform array keeps its
+    integer dtype (checking it needs no int64 copy, which is large for big meshes)."""
     if faces is None:
         raise ValueError(f"{name}: faces are missing")
     try:
@@ -91,10 +100,13 @@ def _polygons(faces, name: str, n: int):
                          f"not a flat list of indices")
 
     if F is not None and F.ndim == 2:
-        if F.dtype.kind == "f" and not np.array_equal(F, np.round(F)):
-            raise ValueError(f"{name}: faces must be integers")
-        F = F.astype(np.int64, copy=False)
-        if not (F < 0).any():
+        if F.dtype.kind == "f":
+            if not np.array_equal(F, np.round(F)):
+                raise ValueError(f"{name}: faces must be integers")
+            F = F.astype(np.int64)
+        elif F.dtype.kind == "b":
+            F = F.astype(np.int64)
+        if F.dtype.kind == "u" or not (F < 0).any():
             if F.shape[1] < 3:
                 raise ValueError(f"{name}: faces need at least 3 vertices, got {F.shape[1]}")
             _check_polygon_range(F, name, n)
@@ -104,14 +116,19 @@ def _polygons(faces, name: str, n: int):
         if (F < -1).any() or (pad[:, :-1] & ~pad[:, 1:]).any():
             raise ValueError(f"{name}: faces contain negative indices "
                              f"(-1 is allowed only as padding at the end of a row)")
-        faces = [row[row >= 0] for row in F]
-
-    polys = [_indices(f, name, "faces", n).ravel() for f in faces]
-    small = [i for i, f in enumerate(polys) if len(f) < 3]
-    if small:
+        flat = F[~pad].astype(np.int64)
+        lens = (~pad).sum(axis=1).astype(np.int64)
+        _check_polygon_range(flat, name, n)
+    else:
+        parts = [np.asarray(f).ravel() for f in faces]
+        lens = np.fromiter((len(p) for p in parts), np.int64, len(parts))
+        flat = (_indices(np.concatenate(parts), name, "faces", n) if parts
+                else np.zeros(0, np.int64))
+    small = np.nonzero(lens < 3)[0]
+    if len(small):
         raise ValueError(f"{name}: {len(small)} face(s) have fewer than 3 vertices "
                          f"(first: face {small[0]})")
-    return polys
+    return _Ragged(flat, lens)
 
 
 def _check_polygon_range(F, name, n):
@@ -173,18 +190,27 @@ def _defined_on(d, name):
 
 def _polygon_edges(F) -> np.ndarray:
     """Unique undirected edges (m, 2) of validated polygons (see _polygons), int32."""
-    if isinstance(F, np.ndarray):
-        E = np.stack([F, np.roll(F, -1, axis=1)], axis=-1).reshape(-1, 2)
-    else:                                       # ragged polygons
-        E = np.concatenate([np.stack([f, np.roll(f, -1)], axis=1) for f in F]) \
-            if len(F) else np.zeros((0, 2), np.int64)
-    E.sort(axis=1)
-    if not len(E):
+    if isinstance(F, _Ragged):
+        a = F.flat
+        start = np.cumsum(F.lens) - F.lens
+        nxt = np.arange(1, len(a) + 1)
+        nxt[start + F.lens - 1] = start             # the last corner closes the polygon
+        b = a[nxt]
+    else:
+        a, b = F.ravel(), np.roll(F, -1, axis=1).ravel()
+    if not len(a):
         return np.zeros((0, 2), np.int32)
-    # unique on one int64 key per edge (faster than np.unique(axis=0))
-    n = int(E.max()) + 1
-    key = np.unique(E[:, 0] * n + E[:, 1])
-    return np.stack([key // n, key % n], axis=1).astype(np.int32)
+    # One uint64 key per edge (smaller index in the high half), sorted, duplicates
+    # dropped: ~5x faster than np.unique, with fewer temporaries.
+    key = np.minimum(a, b).astype(np.uint64)
+    key <<= np.uint64(32)
+    key |= np.maximum(a, b).astype(np.uint64)
+    key.sort()
+    key = key[np.concatenate([[True], key[1:] != key[:-1]])]
+    E = np.empty((len(key), 2), np.int32)
+    E[:, 0] = key >> np.uint64(32)
+    E[:, 1] = key & np.uint64(0xFFFFFFFF)
+    return E
 
 
 def _nonconvex(Q: np.ndarray) -> np.ndarray:
@@ -233,15 +259,16 @@ def _triangulate(polys, V: np.ndarray, name: str = "") -> tuple[np.ndarray, np.n
     """Triangles (T, 3) in face order and triangles per face. Convex polygons are
     fanned from their first vertex; non-convex ones are ear-clipped (a fan would
     cover area outside them). Vectorized per polygon size; *polys* is a uniform
-    (F, k) array or a list of polygons."""
+    (F, k) array or _Ragged."""
     uniform = isinstance(polys, np.ndarray)
-    sizes = np.full(len(polys), polys.shape[1]) if uniform else np.array([len(p) for p in polys])
+    sizes = np.full(len(polys), polys.shape[1]) if uniform else polys.lens
+    first = None if uniform else np.cumsum(sizes) - sizes
     tpf = sizes - 2
     start = np.concatenate([[0], np.cumsum(tpf)[:-1]])
     T = np.empty((int(tpf.sum()), 3), np.int64)
     for k in np.unique(sizes):
         rows = np.nonzero(sizes == k)[0]
-        F = polys if uniform else np.array([polys[i] for i in rows], np.int64).reshape(len(rows), k)
+        F = polys if uniform else polys.flat[first[rows][:, None] + np.arange(k)]
         t = np.arange(1, k - 1)
         tris = np.stack([np.repeat(F[:, :1], k - 2, axis=1), F[:, t], F[:, t + 1]], axis=-1)
         if k > 3:
@@ -269,10 +296,11 @@ def surface_mesh(name: str, vertices, faces, color=(0.8, 0.8, 0.8),
     Faces may be uniform (all same length) or ragged (polygons with different
     vertex counts).  Ragged faces are fan-triangulated for rendering.
 
-    The unique polygon edges (before triangulation) always travel with the mesh as
-    ``poly_edges``, pairs of indices into its vertices; the viewer draws them as tubes
-    when show_edges=True or when "show edges" is ticked. edge_radius=0 means 3% of the
-    median edge length.
+    For polygon meshes the unique polygon edges (before triangulation) travel with the
+    mesh as ``poly_edges``, pairs of indices into its vertices; triangle meshes leave
+    them out (the viewer finds a triangle mesh's edges itself, only when they are
+    shown). The viewer draws them as tubes when show_edges=True or when "show edges"
+    is ticked. edge_radius=0 means 3% of the median edge length.
 
     shading: "flat" (one normal per triangle: planar polygons look planar), "smooth"
     (vertex normals), or "auto" (default): flat for polygon meshes, smooth for triangle
@@ -283,11 +311,14 @@ def surface_mesh(name: str, vertices, faces, color=(0.8, 0.8, 0.8),
     """
     verts = _points(vertices, name)
     F = _polygons(faces, name, len(verts) // 3)
-    poly_edges = _polygon_edges(F)
     uniform = isinstance(F, np.ndarray)
     first_len = F.shape[1] if uniform else 3
+    triangles = uniform and first_len == 3
+    # Most of the work for big triangle meshes was these edges, and they doubled the
+    # data sent: the viewer derives a triangle mesh's edges when it needs them.
+    poly_edges = None if triangles else _polygon_edges(F)
 
-    V3 = verts.reshape(-1, 3).astype(np.float64)
+    V3 = None if triangles else verts.reshape(-1, 3).astype(np.float64)
     tris_per_face = None
     # Uniform triangles and convex quads go as they are (the viewer fans the quads);
     # larger, mixed or non-convex polygons are triangulated here.
@@ -307,13 +338,14 @@ def surface_mesh(name: str, vertices, faces, color=(0.8, 0.8, 0.8),
         "faces":         faces_arr,
         "face_size":     int(fs),
         "tris_per_face": None if tris_per_face is None else np.array(tris_per_face, np.int32),
-        "poly_edges":    poly_edges.ravel(),
         "color":         _rgb(color, name),
         "opacity":       _unit(opacity, name, "opacity"),
         "show_edges":    bool(show_edges),
         "show":          bool(show),
         "shading":       _shading(shading, name, polygons=not uniform or first_len > 3),
     }
+    if poly_edges is not None:
+        mesh_dict["poly_edges"] = poly_edges.ravel()
     if show_edges:
         mesh_dict["edge_color"]  = _rgb(edge_color, name, "edge_color")
         mesh_dict["edge_radius"] = float(edge_radius)

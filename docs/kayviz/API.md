@@ -62,8 +62,9 @@ Screenshots of the open tab: `kv.screenshot(path, views=None)`,
 
 Unique polygon edges are taken from the faces *before* fan-triangulation and sent with the
 mesh as `poly_edges` (index pairs into its vertices), so quad or hex meshes show polygon
-edges, not triangle diagonals. The "show edges" checkbox in the scene panel toggles the same overlay without a
-server round trip.
+edges, not triangle diagonals. Triangle meshes do not send them: the viewer finds their
+edges itself when the overlay is first shown. The "show edges" checkbox in the scene panel
+toggles the same overlay without a server round trip.
 
 #### `add_scalar_quantity(..., defined_on="faces")`
 
@@ -297,7 +298,7 @@ are lists (`wire.jsonable`).
 
 | `"type"` | Fields |
 |---|---|
-| `surface_mesh` | `name`, `vertices`, `faces`, `face_size`, `color`, `opacity`, `show_edges` (+ `edge_color`, `edge_radius`), `tris_per_face`, `poly_edges`, `material` |
+| `surface_mesh` | `name`, `vertices`, `faces`, `face_size`, `color`, `opacity`, `show_edges` (+ `edge_color`, `edge_radius`), `tris_per_face`, `poly_edges` (polygon meshes only), `material` |
 | `curve_network` | `name`, `vertices`, `edges`, `color`, `radius` |
 | `point_cloud` | `name`, `points`, `color`, `radius` |
 | `scalar_quantity` | `target`, `name`, `defined_on`, `values` |

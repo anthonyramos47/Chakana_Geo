@@ -17,6 +17,7 @@ several apps:
 from __future__ import annotations
 
 import asyncio
+import atexit
 import os
 import socket
 import threading
@@ -222,6 +223,9 @@ class BackgroundServer:
 
     def start(self, timeout: float = 15.0) -> None:
         self._thread.start()
+        # A daemon thread still serving while the interpreter finalizes crashed the
+        # process at exit (SIGSEGV, about 1 run in 75 of a short script): stop it first.
+        atexit.register(self._stop_at_exit)
         deadline = time.monotonic() + timeout
         while not self._server.started:
             if not self._thread.is_alive():
@@ -233,4 +237,10 @@ class BackgroundServer:
     def stop(self) -> None:
         self._server.should_exit = True
         self._thread.join(timeout=5)
+
+    def _stop_at_exit(self) -> None:
+        if self._thread.is_alive():
+            self._server.should_exit = True
+            self._server.force_exit = True      # do not wait for open tabs to close
+            self._thread.join(timeout=3)
 

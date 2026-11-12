@@ -3,6 +3,7 @@
 import json
 
 import numpy as np
+import pytest
 
 from kayviz import serializers as ser
 from kayviz.runtime.wire import decode, encode, jsonable
@@ -63,6 +64,44 @@ def test_ragged_faces_edges_and_triangulation():
     d = ser.surface_mesh("R", V, [[0, 1, 2], [0, 2, 3, 4]])
     assert len(d["poly_edges"]) // 2 == 6           # triangle + quad sharing (0, 2)
     assert d["tris_per_face"].tolist() == [1, 2] and d["face_size"] == 3
+
+
+def test_triangle_meshes_send_no_edges():
+    # The viewer finds a triangle mesh's edges itself (static/lib/edges.js).
+    d = ser.surface_mesh("T", np.zeros((4, 3)), np.array([[0, 1, 2], [0, 2, 3]], np.int32))
+    assert "poly_edges" not in d and d["face_size"] == 3
+
+
+def _reference_edges(polys):
+    return {tuple(sorted((int(f[i]), int(f[(i + 1) % len(f)])))) for f in polys for i in range(len(f))}
+
+
+@pytest.mark.parametrize("kind", ["quads", "ragged", "padded"])
+def test_polygon_edges_match_a_reference(kind):
+    rng = np.random.default_rng(1)
+    n = 40
+    V = rng.random((n, 3))
+    if kind == "quads":
+        polys = [rng.choice(n, 4, replace=False) for _ in range(30)]
+        faces = np.array(polys)
+    else:
+        polys = [rng.choice(n, k, replace=False) for k in rng.integers(3, 7, 30)]
+        faces = (polys if kind == "ragged" else
+                 np.array([np.r_[p, [-1] * (6 - len(p))] for p in polys]))
+    E = ser.surface_mesh("P", V, faces)["poly_edges"].reshape(-1, 2)
+    assert {tuple(e) for e in E.tolist()} == _reference_edges(polys)
+    assert len(E) == len(_reference_edges(polys)) and (E[:, 0] < E[:, 1]).all()
+
+
+@pytest.mark.parametrize("faces, match", [
+    ([[0, 1, 2], [0, 1.5, 2, 3]], "integers"),
+    ([[0, 1, 2], [0, 1, 2, 9]], "out of range"),
+    ([[0, 1, 2], ["a", "b", "c", "d"]], "numeric"),
+    ([[0, 1, 2], [0, 1]], "fewer than 3"),
+])
+def test_ragged_faces_are_checked(faces, match):
+    with pytest.raises(ValueError, match=match):
+        ser.surface_mesh("R", np.zeros((5, 3)), faces)
 
 
 def test_show_edges_travels_inside_the_mesh_dict():
