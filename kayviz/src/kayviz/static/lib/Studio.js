@@ -101,6 +101,8 @@ export class Studio {
     // RenderPass draws into readBuffer (renderTarget2, 4x MSAA + depth); the post
     // passes (GTAO blend, OutputPass) only draw full-screen quads into writeBuffer
     // (renderTarget1) or the screen, so renderTarget1 needs neither MSAA nor depth.
+    // This relies on an even number of swapping passes per frame (GTAO, Output):
+    // disabling or adding one would make the next RenderPass draw into renderTarget1.
     const target = new THREE.WebGLRenderTarget(4, 4, { type: THREE.HalfFloatType, samples: 4 });
     this.composer = new EffectComposer(renderer, target);
     this.composer.renderTarget1.samples = 0;
