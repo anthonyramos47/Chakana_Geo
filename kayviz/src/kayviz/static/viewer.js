@@ -739,52 +739,44 @@ export class Viewer {
   }
 
   _buildTubeNetwork(vertices, edges, color, radius) {
-    // open prisms (no caps), written straight into typed arrays: fast enough for ~10^5 edges
+    // One open cylinder drawn once per edge (instancing): a 4x4 matrix per edge
+    // instead of its own prism vertices, normals and indices (64 instead of ~290
+    // bytes per edge), and click-to-inspect gets the edge from the instance id.
     const mat  = new THREE.MeshPhongMaterial({
       color: this._rgb(color), shininess: 30,
       polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -4,
     });
     const m    = edges.length / 2;
     const segs = m > 20000 ? 4 : 6;
-    const pos  = new Float32Array(m * 2 * segs * 3);
-    const nrm  = new Float32Array(m * 2 * segs * 3);
-    const idx  = new Uint32Array(m * segs * 6);
-    const cs   = Array.from({ length: segs }, (_, s) => Math.cos(2 * Math.PI * s / segs));
-    const sn   = Array.from({ length: segs }, (_, s) => Math.sin(2 * Math.PI * s / segs));
-    let nv = 0, ni = 0;
+    const geo  = new THREE.CylinderGeometry(1, 1, 1, segs, 1, true);   // axis y, centred
+    const mesh = new THREE.InstancedMesh(geo, mat, m);
+    const M    = mesh.instanceMatrix.array;
     for (let k = 0; k < m; k++) {
-      const i = edges[2*k] * 3, j = edges[2*k + 1] * 3;
+      const i = edges[2*k] * 3, j = edges[2*k + 1] * 3, o = 16 * k;
       const ax = vertices[i], ay = vertices[i+1], az = vertices[i+2];
       let dx = vertices[j] - ax, dy = vertices[j+1] - ay, dz = vertices[j+2] - az;
       const len = Math.hypot(dx, dy, dz);
-      if (len < 1e-12) continue;
+      if (len < 1e-12) {                    // nothing drawn for it (instances start
+        M.fill(0, o, o + 15);               // as the identity: a unit cylinder)
+        continue;
+      }
       dx /= len; dy /= len; dz /= len;
-      // u ⟂ d (cross with the axis least aligned with d), w = d × u
+      // u ⟂ d (cross with the axis least aligned with d), w = u × d: (u, d, w) is
+      // right-handed, so the cylinder keeps its outward winding.
       let ux, uy, uz;
       if (Math.abs(dx) < 0.9) { ux = 0; uy = dz; uz = -dy; } else { ux = -dz; uy = 0; uz = dx; }
       const ul = Math.hypot(ux, uy, uz); ux /= ul; uy /= ul; uz /= ul;
-      const wx = dy*uz - dz*uy, wy = dz*ux - dx*uz, wz = dx*uy - dy*ux;
-      for (let end = 0; end < 2; end++) {
-        const px = end ? vertices[j] : ax, py = end ? vertices[j+1] : ay, pz = end ? vertices[j+2] : az;
-        for (let s = 0; s < segs; s++) {
-          const nx = cs[s]*ux + sn[s]*wx, ny = cs[s]*uy + sn[s]*wy, nz = cs[s]*uz + sn[s]*wz;
-          const o = (nv + end*segs + s) * 3;
-          pos[o] = px + radius*nx; pos[o+1] = py + radius*ny; pos[o+2] = pz + radius*nz;
-          nrm[o] = nx; nrm[o+1] = ny; nrm[o+2] = nz;
-        }
-      }
-      for (let s = 0; s < segs; s++) {
-        const a = nv + s, b = nv + (s + 1) % segs, c = a + segs, d = b + segs;
-        idx[ni++] = a; idx[ni++] = b; idx[ni++] = d;
-        idx[ni++] = a; idx[ni++] = d; idx[ni++] = c;
-      }
-      nv += 2 * segs;
+      const wx = uy*dz - uz*dy, wy = uz*dx - ux*dz, wz = ux*dy - uy*dx;
+      // columns: x -> radius u, y -> the edge, z -> radius w, translation -> midpoint
+      M[o]     = radius*ux; M[o + 1] = radius*uy; M[o + 2]  = radius*uz;
+      M[o + 4] = len*dx;    M[o + 5] = len*dy;    M[o + 6]  = len*dz;
+      M[o + 8] = radius*wx; M[o + 9] = radius*wy; M[o + 10] = radius*wz;
+      M[o + 12] = ax + 0.5*len*dx; M[o + 13] = ay + 0.5*len*dy; M[o + 14] = az + 0.5*len*dz;
     }
-    const geo = new THREE.BufferGeometry();
-    geo.setAttribute('position', new THREE.BufferAttribute(pos.subarray(0, nv * 3), 3));
-    geo.setAttribute('normal',   new THREE.BufferAttribute(nrm.subarray(0, nv * 3), 3));
-    geo.setIndex(new THREE.BufferAttribute(idx.subarray(0, ni), 1));
-    return new THREE.Mesh(geo, mat);
+    mesh.instanceMatrix.needsUpdate = true;
+    mesh.computeBoundingBox();
+    mesh.computeBoundingSphere();
+    return mesh;
   }
 
   /**

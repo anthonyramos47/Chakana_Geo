@@ -664,15 +664,12 @@ renderer.domElement.addEventListener('click', e => {
   } else {
     // curve_network
     html += `type: curve_network<br>`;
-    if (entry.radius > 0) {
-      html += `edge: — (tube mesh, no edge ID)<br>`;
-    } else {
-      const edgeIdx = Math.floor(hit.index / 2);
-      const v0 = entry.opts.edges[edgeIdx*2];
-      const v1 = entry.opts.edges[edgeIdx*2 + 1];
-      html += `edge:      ${edgeIdx}<br>`;
-      html += `endpoints: [${v0}, ${v1}]<br>`;
-    }
+    // tubes: one instance per edge; lines: two vertices per edge
+    const edgeIdx = hit.instanceId ?? Math.floor(hit.index / 2);
+    const v0 = entry.opts.edges[edgeIdx*2];
+    const v1 = entry.opts.edges[edgeIdx*2 + 1];
+    html += `edge:      ${edgeIdx}<br>`;
+    html += `endpoints: [${v0}, ${v1}]<br>`;
     html += `hit: ${ptStr}`;
   }
 
