@@ -68,19 +68,20 @@ def _pad8(n: int) -> int:
     return (n + 7) & ~7
 
 
-def encode(msg) -> str | bytes:
-    """Encode a message: JSON text, or a binary frame if it contains arrays."""
-    chunks: list[bytes] = []
+def encode(msg) -> str | bytearray:
+    """Encode a message: JSON text, or a binary frame (a bytearray) if it contains
+    arrays. Each array is copied once, straight into the frame: building it from
+    per-array bytes and joins peaked at 3x the frame (660 MB for a 220 MB mesh)."""
+    arrays: list[tuple[int, np.ndarray]] = []
     offset = 0
 
     def walk(o):
         nonlocal offset
         if isinstance(o, np.ndarray):
             a = _wire_array(o)
-            b = a.tobytes()
             ref = {"__b": offset, "t": _TYPES[a.dtype], "n": int(a.size)}
-            chunks.append(b + b"\0" * (_pad8(len(b)) - len(b)))
-            offset += _pad8(len(b))
+            arrays.append((offset, a))
+            offset += _pad8(a.nbytes)
             return ref
         if isinstance(o, dict):
             return {k: walk(v) for k, v in o.items()}
@@ -89,12 +90,16 @@ def encode(msg) -> str | bytes:
         return _scalar(o)
 
     header = json.dumps(walk(msg), separators=(",", ":"), allow_nan=False)
-    if not chunks:
+    if not arrays:
         return header
     hb = header.encode()
-    head = struct.pack("<I", len(hb)) + hb
-    head += b"\0" * (_pad8(len(head)) - len(head))
-    return head + b"".join(chunks)
+    base = _pad8(4 + len(hb))
+    frame = bytearray(base + offset)                # zero-filled: the padding
+    struct.pack_into("<I", frame, 0, len(hb))
+    frame[4:4 + len(hb)] = hb
+    for off, a in arrays:
+        np.frombuffer(frame, np.uint8, a.nbytes, base + off)[:] = a.view(np.uint8)
+    return frame
 
 
 def jsonable(o):
@@ -111,16 +116,16 @@ def jsonable(o):
     return _scalar(o)
 
 
-async def encode_async(msg) -> str | bytes:
+async def encode_async(msg) -> str | bytearray:
     """`encode` in a worker thread: a big scene would otherwise stall the event loop."""
     return await asyncio.to_thread(encode, msg)
 
 
-async def send_encoded(ws, data: str | bytes) -> None:
-    if isinstance(data, bytes):
-        await ws.send_bytes(data)
-    else:
+async def send_encoded(ws, data: str | bytearray) -> None:
+    if isinstance(data, str):
         await ws.send_text(data)
+    else:
+        await ws.send_bytes(data)
 
 
 async def send(ws, msg) -> None:
@@ -155,7 +160,7 @@ class Socket:
 _DTYPES = {"f32": np.float32, "i32": np.int32, "u32": np.uint32}
 
 
-def decode(data: str | bytes):
+def decode(data: str | bytes | bytearray):
     """Inverse of `encode` (for Python clients and tests): arrays come back as numpy."""
     if isinstance(data, str):
         return json.loads(data)
