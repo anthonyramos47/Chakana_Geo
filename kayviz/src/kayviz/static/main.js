@@ -374,8 +374,14 @@ function sceneBounds() {
   sphere.radius = Math.max(sphere.radius, 1e-9);
   return { box, center: sphere.center, radius: sphere.radius };
 }
-let _bounds = null;                     // refreshed when the scene changes
-document.addEventListener('viewer-changed', () => { _bounds = sceneBounds(); _placeGrid(); });
+let _bounds = null, _boundsStale = true;
+// Recomputed lazily, once per change, when a frame or a fit needs them (a script
+// registering many objects sends many messages: walking the scene on each is quadratic).
+document.addEventListener('viewer-changed', () => { _boundsStale = true; window.__invalidate?.(); });
+function bounds() {
+  if (_boundsStale) { _boundsStale = false; _bounds = sceneBounds(); _placeGrid(); }
+  return _bounds;
+}
 
 /** Grid under the scene, with a 1-2-5 spacing that suits its size. */
 function _placeGrid() {
@@ -389,9 +395,8 @@ function _placeGrid() {
 
 /** Frame the scene: from the current direction, or from the default one (reset). */
 function fitView({ reset = false } = {}) {
-  _bounds = sceneBounds();
-  if (!_bounds) return;
-  _placeGrid();
+  _boundsStale = true;                   // the user may have moved or hidden things
+  if (!bounds()) return;
   const dir = reset ? fromYUp(0.55, 0.45, 0.7).normalize()
                     : camera.position.clone().sub(controls.target).normalize();
   const fov = THREE.MathUtils.degToRad(camera.fov);
@@ -407,7 +412,7 @@ window.__fitView = fitView;
 /** Clip planes from the distance to the scene (else large scenes get cut, tiny ones
  *  lose depth precision). */
 function _updateClip() {
-  if (!_bounds) return;
+  if (!bounds()) return;
   const R = _bounds.radius, d = camera.position.distanceTo(_bounds.center);
   const near = Math.max(d - 1.5 * R, (d + R) * 1e-4);
   const far  = d + 1.5 * R;
@@ -420,7 +425,10 @@ function _updateClip() {
 // Fit once, when the first geometry arrives (re-registrations keep the user's view).
 let _fitted = false;
 document.addEventListener('viewer-changed', () => {
-  if (!_fitted && _bounds) { _fitted = true; fitView({ reset: true }); }
+  if (_fitted) return;
+  setTimeout(() => {                     // after the batch of messages that brought it
+    if (!_fitted && bounds()) { _fitted = true; fitView({ reset: true }); }
+  }, 60);
 });
 
 // Keys: F frames the scene, R resets the view (not while typing in a field).

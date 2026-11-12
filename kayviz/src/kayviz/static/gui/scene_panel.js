@@ -59,12 +59,20 @@ export class ScenePanel {
     this._root.addEventListener('pointerdown', () => { this._busy = true; });
     window.addEventListener('pointerup', () => { this._busy = false; later(); });
     this._root.addEventListener('focusout', () => setTimeout(later, 0));
+    // Changes arriving together (a script registering 1000 objects one by one sends
+    // 1000 messages) are coalesced into one rebuild: rebuilding per message is
+    // quadratic in the number of objects.
+    let pending = null;
     document.addEventListener('viewer-changed', () => {
-      const editing = this._root.contains(document.activeElement) &&
-                      document.activeElement.tagName === 'INPUT' &&
-                      document.activeElement.type !== 'checkbox';
-      if (this._busy || editing) this._rebuildDue = true;
-      else this._rebuild();
+      if (pending) return;
+      pending = setTimeout(() => {
+        pending = null;
+        const editing = this._root.contains(document.activeElement) &&
+                        document.activeElement.tagName === 'INPUT' &&
+                        document.activeElement.type !== 'checkbox';
+        if (this._busy || editing) this._rebuildDue = true;
+        else this._rebuild();
+      }, 50);
     });
     this._rebuild();
   }
