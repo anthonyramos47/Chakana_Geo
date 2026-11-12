@@ -16,6 +16,8 @@ import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { LabelRenderer }  from './LabelRenderer.js';
 import { startScreenshotBridge } from './screenshot.js';
 import { Studio }         from './lib/Studio.js';
+import { benchmark, benchmarkTable, runBenchmarkJob } from './benchmark.js';
+import { dockable, bringToFront } from './gui/dock.js';
 
 // Up axis, written into the page by the server (kv.set_up_dir): "z" (default) or "y".
 const UP = document.querySelector('meta[name="kayviz-up"]')?.content === 'y' ? 'y' : 'z';
@@ -437,6 +439,51 @@ _fitButton.title = 'Fit the scene (F); reset the view (R)';
 _fitButton.setAttribute('aria-label', 'Fit the scene');
 _fitButton.addEventListener('click', () => fitView({ reset: true }));
 document.body.appendChild(_fitButton);
+
+// ── Benchmark (📊): frame times and memory of the current scene ──────────────
+window.__benchmarkJob = runBenchmarkJob;            // kv.benchmark() from Python
+const _benchButton = _bgButton.cloneNode();
+_benchButton.style.left = '576px';
+_benchButton.textContent = '\uD83D\uDCCA';
+_benchButton.title = 'Benchmark: frame time and memory, plain and studio';
+_benchButton.setAttribute('aria-label', 'Benchmark');
+const _benchPanel = document.createElement('div');
+Object.assign(_benchPanel.style, {
+  position: 'fixed', bottom: '56px', left: '416px', zIndex: '1002', display: 'none',
+  background: '#1f1f1f', color: '#eee', border: '1px solid #444', borderRadius: '6px',
+  font: '12px monospace', minWidth: '320px',
+});
+_benchPanel.innerHTML = `
+  <div style="display:flex;align-items:center;gap:8px;padding:6px 8px;background:#2a2a2a;
+              border-bottom:1px solid #444;font-weight:bold">Benchmark
+    <button type="button" data-run style="margin-left:auto">run again</button>
+    <button type="button" data-close aria-label="Close">✕</button></div>
+  <div data-body style="padding:8px">…</div>
+  <style>
+    [data-body] table { border-collapse: collapse; width: 100%; }
+    [data-body] th, [data-body] td { padding: 2px 8px; text-align: right; border-bottom: 1px solid #333; }
+    [data-body] td:first-child, [data-body] th:first-child { text-align: left; color: #aaa; }
+    .kv-bench-note { margin-top: 6px; color: #888; max-width: 360px; white-space: normal; }
+  </style>`;
+document.body.append(_benchButton, _benchPanel);
+dockable(_benchPanel, _benchPanel.firstElementChild, 'benchmark');
+const _benchBody = _benchPanel.querySelector('[data-body]');
+const _runBench = () => {
+  _benchBody.textContent = 'measuring…';
+  setTimeout(() => {                                 // let "measuring…" paint first
+    try { _benchBody.innerHTML = benchmarkTable(benchmark({ frames: 60 })); }
+    catch (e) { _benchBody.textContent = `benchmark failed: ${e.message}`; }
+  }, 30);
+};
+_benchButton.addEventListener('click', () => {
+  const open = _benchPanel.style.display === 'none';
+  _benchPanel.style.display = open ? '' : 'none';
+  if (open) { bringToFront(_benchPanel); _runBench(); }
+});
+_benchPanel.querySelector('[data-run]').addEventListener('click', _runBench);
+_benchPanel.querySelector('[data-close]').addEventListener('click', () => {
+  _benchPanel.style.display = 'none';
+});
 
 /** {action: "view"} from Python: kv.look_at / kv.reset_camera / kv.set_up_dir. */
 window.__applyView = (msg) => {

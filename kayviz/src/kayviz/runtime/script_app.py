@@ -156,6 +156,17 @@ class ScriptApp(BroadcastMixin, GUIApp):
             await app._reply(tab, {"action": "screenshot", **job})
             return {"ok": True, "id": job["id"]}
 
+        @router.post("/benchmark/request")
+        async def benchmark_request(payload: dict):
+            tab = next(reversed(app._queues), None)
+            if tab is None:
+                return {"ok": False, "error": "no browser connected"}
+            jid = uuid.uuid4().hex
+            app._shot_pending.add(jid)
+            await app._reply(tab, {"action": "benchmark", "id": jid,
+                                   "frames": int(payload.get("frames", 60))})
+            return {"ok": True, "id": jid}
+
         @router.get("/screenshot/pending")
         async def screenshot_pending():
             return {}           # jobs now travel over the WebSocket
@@ -169,6 +180,7 @@ class ScriptApp(BroadcastMixin, GUIApp):
                     "images": payload.get("images", []),
                     "error":  payload.get("error"),
                     "camera": payload.get("camera"),
+                    "result": payload.get("result"),      # kv.benchmark
                 }
             return {"ok": True}
 

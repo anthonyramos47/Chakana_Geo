@@ -544,6 +544,59 @@ def screenshot_views(views=None, width: int = 900, height: int = 700,
     return _capture(views, width, height, hide_grid, timeout, background)
 
 
+def benchmark(frames: int = 60, timeout: float = 60.0, show: bool = True) -> dict:
+    """Measure the open viewer tab drawing the current scene, in plain and in studio
+    mode: frame times (each frame timed until the GPU finished it), triangles, draw
+    calls, and memory (geometry exactly; screen, studio and shadow buffers estimated
+    from their formats; the browser's JavaScript heap). Prints a table when *show*.
+
+    Returns the measurements as a dict (keys "modes", "scene", "memory_mb")."""
+    _ensure_init()
+    try:
+        r = requests.post(f"{_url}/api/script/benchmark/request", json={"frames": frames},
+                          timeout=10).json()
+        if not r.get("ok"):
+            raise RuntimeError(f"benchmark: {r.get('error')} — open {_url} in a browser")
+        res = requests.get(f"{_url}/api/script/screenshot/collect",
+                           params={"id": r["id"], "timeout": timeout}, timeout=timeout + 10).json()
+    except requests.RequestException as e:
+        raise RuntimeError(f"benchmark failed: {e}") from e
+    if res.get("error") or not res.get("result"):
+        raise RuntimeError(f"benchmark failed in browser: {res.get('error')}")
+    result = res["result"]
+    if show:
+        print(benchmark_table(result))
+    return result
+
+
+def benchmark_table(r: dict) -> str:
+    """A kv.benchmark() result as a plain-text table."""
+    p, s = r["modes"]["plain"], r["modes"]["studio"]
+    m = r["memory_mb"]
+    f = lambda x, d=1: "—" if x is None else f"{x:.{d}f}"
+    rows = [
+        ("frame, median (ms)", f(p["median_ms"]), f(s["median_ms"])),
+        ("frame, 95% (ms)",    f(p["p95_ms"]),    f(s["p95_ms"])),
+        ("frames / s",         f(p["fps"], 0),    f(s["fps"], 0)),
+        ("triangles",          f"{p['triangles']:,}", f"{s['triangles']:,}"),
+        ("draw calls",         str(p["draw_calls"]), str(s["draw_calls"])),
+        ("GPU memory (MB)",    f(p["gpu_mb"]),    f(s["gpu_mb"])),
+        ("  geometry",         f(m["geometry"]),  f(m["geometry"])),
+        ("  screen buffers",   f(p["buffers_mb"]["screen"]), f(s["buffers_mb"]["screen"])),
+        ("  studio buffers",   "—",               f(s["buffers_mb"]["studio"])),
+        ("  shadow maps",      "—",               f(s["buffers_mb"]["shadow"])),
+        ("JS heap (MB)",       f(m["js_heap"]),   ""),
+    ]
+    w = max(len(a) for a, _, _ in rows)
+    lines = [f"{'':<{w}}  {'plain':>10}  {'studio':>10}"]
+    lines += [f"{a:<{w}}  {b:>10}  {c:>10}" for a, b, c in rows]
+    sc = r["scene"]
+    lines.append(f"{sc['objects']} objects, {sc['vertices']:,} vertices, canvas {sc['canvas']} "
+                 f"(pixel ratio {r['pixel_ratio']}), {r['frames']} frames per mode; buffer "
+                 f"sizes estimated, geometry exact.")
+    return "\n".join(lines)
+
+
 def save_grid(path, rows, labels=None, pad: int = 8, bg=(255, 255, 255),
               label_height: int = 28):
     """

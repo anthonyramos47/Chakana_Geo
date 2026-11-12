@@ -119,6 +119,8 @@ export class WSClient {
           window.__applyView?.(data);
         } else if (data.action === 'screenshot') {
           window.__screenshotJob?.(data);
+        } else if (data.action === 'benchmark') {
+          window.__benchmarkJob?.(data);
         } else if (data.objects?.length) {
           this.viewer.applyMessage(data);
         }

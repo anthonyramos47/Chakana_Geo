@@ -18,6 +18,7 @@
  */
 
 import GUI from 'lil-gui';
+import { dockable } from './dock.js';
 
 export class Panel {
   /**
@@ -27,6 +28,7 @@ export class Panel {
   constructor(title, opts = {}) {
     this.gui      = new GUI({ title, width: opts.width ?? 300 });
     this._folders = {};   // name → GUI folder
+    dockable(this.gui.domElement, this.gui.$title, `app:${title}`);
   }
 
   /**

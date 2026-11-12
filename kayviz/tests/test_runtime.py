@@ -759,3 +759,28 @@ def test_registering_an_app_again_reloads_its_tabs():
             out["code"] = getattr(e, "rcvd", None) and e.rcvd.code
     ''')
     assert out["code"] == 4000
+
+
+def test_benchmark_round_trip_and_table():
+    out = _run('''
+        kv.init()
+        base = kv.url()
+        result = {"frames": 5, "pixel_ratio": 2,
+                  "scene": {"objects": 1, "vertices": 8, "canvas": "100x100"},
+                  "memory_mb": {"geometry": 0.1, "js_heap": 12.0, "textures": 3},
+                  "modes": {m: {"median_ms": 2.0, "p95_ms": 3.0, "fps": 500.0, "triangles": 12,
+                                "draw_calls": 1, "gpu_mb": 10.0,
+                                "buffers_mb": {"screen": 9.9, "studio": 0.0, "shadow": 0.0}}
+                            for m in ("plain", "studio")}}
+        with connect(base.replace("http", "ws") + "/api/script/ws") as tab:
+            def answer():
+                job = recv_until(tab, lambda m: m.get("action") == "benchmark")
+                requests.post(base + "/api/script/screenshot/result",
+                              json={"id": job["id"], "images": [], "error": None, "result": result})
+            threading.Thread(target=answer, daemon=True).start()
+            r = kv.benchmark(frames=5, show=False)
+        out["fps"] = r["modes"]["plain"]["fps"]
+        out["table"] = kv.script.benchmark_table(r)
+    ''')
+    assert out["fps"] == 500.0
+    assert "frame, median (ms)" in out["table"] and "GPU memory (MB)" in out["table"]

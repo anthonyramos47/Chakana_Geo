@@ -13,6 +13,8 @@
  * Call energyPanel.reset() to clear the history (e.g. on re-initialization).
  */
 
+import { dockable } from './dock.js';
+
 export class EnergyPanel {
   /**
    * @param {WSClient} ws       — WebSocket client; subscribes to onMessage
@@ -34,6 +36,7 @@ export class EnergyPanel {
     this._ctx    = this._canvas.getContext('2d');
 
     document.body.appendChild(this._root);
+    dockable(this._root, this._root.firstElementChild, 'energy');   // header bar
     // Shown once energies arrive: apps without an optimisation never see it.
     this._root.style.display = 'none';
 

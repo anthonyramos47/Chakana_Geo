@@ -248,6 +248,17 @@ twilight, turbo, gray, blues) and `vminmax=(vmin, vmax)`. Vectors take
 `vectortype="standard"` (length × |v| / max|v|, the default), `"ambient"` (|v| in scene
 units) or `"unit"` (all the same length).
 
+**Panels.** The Scene panel, the app's control panel, the Energy panel and the benchmark
+panel are anchored (docked at their edge) by default; the 📌 in a title bar makes the panel
+loose: a floating window to drag by its title and resize from its corner (📍 anchors it
+back). The choice, position and size are remembered.
+
+**Benchmark.** The 📊 button, or `kv.benchmark(frames=60)` from Python (prints a table and
+returns a dict), renders the current scene in plain and in studio mode and reports frame
+times (median, 95th percentile; each frame timed until the GPU finished it), triangles,
+draw calls, and memory: geometry buffers exactly; screen, studio and shadow buffers as
+estimates from their formats; the browser's JavaScript heap.
+
 **Access.** The viewer answers only this machine's programs and its own page: other web
 pages open in your browser cannot read the scene, run callbacks or stop the server
 (Host, Origin and Sec-Fetch-Site checks, `kayviz/security.py`). Behind a proxy (JupyterHub,

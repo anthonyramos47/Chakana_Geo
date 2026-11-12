@@ -24,6 +24,7 @@
 
 import { Materials }      from '../lib/MaterialLibrary.js';
 import { LightingPanel }  from './lighting_panel.js';
+import { dockable }       from './dock.js';
 
 export class ScenePanel {
   /**
@@ -35,6 +36,7 @@ export class ScenePanel {
     this._width  = opts.width ?? 280;
     this._root   = this._buildRoot();
     document.body.appendChild(this._root);
+    dockable(this._root, this._root.firstElementChild, 'scene');   // header bar
 
     // Embed lighting panel above the structure list if lights are provided
     if (opts.lights) {
