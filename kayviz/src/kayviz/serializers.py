@@ -49,7 +49,85 @@ def _array(a, name: str, what: str) -> np.ndarray:
 
 
 def _points(a, name: str, what: str = "vertices") -> np.ndarray:
-    """(N, 3) real coordinates -> flat float32 copy. Non-finite values warn."""
+    """(N, 3) real coordinates -> flat float32 copy. Non-finite values warn.
+    For directions (vectors); positions go through _positions."""
+    return _f32(_checked_points(a, name, what))
+
+
+# Positions travel relative to a scene origin, subtracted in float64 before the
+# float32 cast: far from zero (geo-referenced data, 1e6 m) float32 keeps only
+# ~0.06 m. Decided once, from the first positions of a scene (all later objects
+# must share it, or they would be drawn in different frames): their rounded
+# centre if they are far away, else none (nothing changes). kv.set_origin fixes
+# it; set_origin(None) / kv.clear() start a new scene.
+_origin: np.ndarray | None = None
+_origin_decided = False
+_origin_fixed = False           # set by the user: kept by kv.clear()
+_origin_warned = False
+
+
+def set_origin(origin) -> None:
+    """Fix the scene origin (a 3D point), or None to decide it again from the next
+    positions registered."""
+    global _origin, _origin_decided, _origin_fixed
+    global _origin_warned
+    _origin_warned = False
+    if origin is None:
+        _origin, _origin_decided, _origin_fixed = None, False, False
+        return
+    o = np.asarray(origin, dtype=np.float64).reshape(-1)
+    if o.shape != (3,) or not np.isfinite(o).all():
+        raise ValueError(f"set_origin: a finite 3D point, got {origin!r}")
+    _origin, _origin_decided, _origin_fixed = o, True, True
+
+
+def _new_scene() -> None:
+    """The scene was cleared: decide the origin again, unless the user fixed it."""
+    global _origin, _origin_decided
+    global _origin_warned
+    if not _origin_fixed:
+        _origin, _origin_decided, _origin_warned = None, False, False
+
+
+def get_origin() -> np.ndarray | None:
+    """The scene origin positions are sent relative to, or None."""
+    return None if _origin is None else _origin.copy()
+
+
+def _positions(a, name: str, what: str = "vertices") -> np.ndarray:
+    """_points for positions: relative to the scene origin, which the first
+    positions of a scene decide: their centre (rounded) when it is farther than
+    max(1000 x their size, 1e4) from zero, else no origin."""
+    global _origin, _origin_decided, _origin_warned
+    arr = _checked_points(a, name, what)
+    fin = arr[np.isfinite(arr).all(axis=1)] if len(arr) else arr
+    if len(fin) and (not _origin_decided or (_origin is None and not _origin_warned)):
+        lo, hi = fin.min(axis=0).astype(np.float64), fin.max(axis=0).astype(np.float64)
+        centre, size = (lo + hi) / 2, float((hi - lo).max())
+        far = np.abs(centre).max() > max(1000 * size, 1e4)
+        if not _origin_decided:
+            _origin_decided = True
+            if far:
+                step = 10.0 ** np.floor(np.log10(size)) if size > 0 else 1.0
+                _origin = np.round(centre / step) * step
+        elif far:
+            _origin_warned = True
+            warnings.warn(f"{name}: {what} around {np.abs(centre).max():.3g} lose precision "
+                          f"in float32 (the scene's first objects chose no origin); call "
+                          f"kv.set_origin(...) before registering, or kv.clear() first",
+                          stacklevel=3)
+    if _origin is not None:
+        arr = np.asarray(arr, dtype=np.float64) - _origin
+    return _f32(arr)
+
+
+def _origin_entry() -> dict:
+    """{"origin": [x, y, z]} for objects whose positions are shifted, else {}."""
+    return {} if _origin is None else {"origin": _origin.tolist()}
+
+
+def _checked_points(a, name: str, what: str) -> np.ndarray:
+    """(N, 3) real coordinates, checked (not converted). Non-finite values warn."""
     arr = _array(a, name, what)
     if arr.ndim != 2 or arr.shape[1] != 3:
         hint = (" (2D points: add a zero z column, np.c_[P, np.zeros(len(P))])"
@@ -58,8 +136,8 @@ def _points(a, name: str, what: str = "vertices") -> np.ndarray:
     bad = ~np.isfinite(arr).all(axis=1)
     if bad.any():
         warnings.warn(f"{name}: {int(bad.sum())} of {len(arr)} {what} are NaN or infinite",
-                      stacklevel=3)
-    return _f32(arr)
+                      stacklevel=4)
+    return arr
 
 
 def _indices(a, name: str, what: str, n: int, width: int | None = None) -> np.ndarray:
@@ -291,7 +369,7 @@ def surface_mesh(name: str, vertices, faces, color=(0.8, 0.8, 0.8),
     Arrays are numpy float32 / int32 (sent to the browser as binary, see
     kayviz.runtime.wire); ``kayviz.runtime.wire.jsonable`` turns them into lists.
     """
-    verts = _points(vertices, name)
+    verts = _positions(vertices, name)
     F = _polygons(faces, name, len(verts) // 3)
     uniform = isinstance(F, np.ndarray)
     first_len = F.shape[1] if uniform else 3
@@ -327,6 +405,7 @@ def surface_mesh(name: str, vertices, faces, color=(0.8, 0.8, 0.8),
         mesh_dict["edge_radius"] = float(edge_radius)
     if material is not None:
         mesh_dict["material"] = str(material)
+    mesh_dict.update(_origin_entry())
     return mesh_dict
 
 
@@ -343,7 +422,7 @@ def _size(x, name, what):
 def curve_network(name: str, vertices, edges, color=(0.8, 0.2, 0.2), radius: float | None = None,
                   show: bool = True):
     """Mirrors ps.register_curve_network(). show=False registers the object hidden (its checkbox in the scene panel unticked)."""
-    verts = _points(vertices, name)
+    verts = _positions(vertices, name)
     return {
         "type":     "curve_network",
         "name":     name,
@@ -352,6 +431,7 @@ def curve_network(name: str, vertices, edges, color=(0.8, 0.2, 0.2), radius: flo
         "color":    _rgb(color, name),
         "radius":   _size(radius, name, "radius"),   # None: 0.15% of its size; 0: lines
         "show":     bool(show),
+        **_origin_entry(),
     }
 
 
@@ -365,18 +445,19 @@ def point_cloud(name: str, points, color=(0.2, 0.5, 0.8), radius=None, show: boo
     return {
         "type":   "point_cloud",
         "name":   name,
-        "points": _points(points, name, "points"),
+        "points": _positions(points, name, "points"),
         "color":  _rgb(color, name),
         "radius": _size(radius, name, "radius"),       # None: 0.5% of its size
         "show":   bool(show),
         "render": point_render,
+        **_origin_entry(),
     }
 
 
 def edge_child(target_name: str, vertices, edges,
                color=(0.1, 0.1, 0.1), radius: float = 0.0):
     """Edge overlay attached as a child of an existing surface_mesh."""
-    verts = _points(vertices, target_name)
+    verts = _positions(vertices, target_name)
     return {
         "type":     "edge_child",
         "target":   target_name,
@@ -463,7 +544,7 @@ def vector_field(name: str, origins, vectors, length: float | None = None,
 
     show=False registers the object hidden (its checkbox in the scene panel unticked).
     """
-    o, v = _points(origins, name, "origins"), _points(vectors, name, "vectors")
+    o, v = _positions(origins, name, "origins"), _points(vectors, name, "vectors")
     if len(o) != len(v):
         raise ValueError(f"{name}: {len(o) // 3} origins but {len(v) // 3} vectors")
     return {
@@ -476,6 +557,7 @@ def vector_field(name: str, origins, vectors, length: float | None = None,
         "radius":  _size(radius, name, "radius"),
         "color":   _rgb(color, name),
         "show":    bool(show),
+        **_origin_entry(),
     }
 
 

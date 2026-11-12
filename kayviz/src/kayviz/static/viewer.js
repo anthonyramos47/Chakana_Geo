@@ -701,6 +701,11 @@ export class Viewer {
       const en = this._objects.get(obj.name);
       if (en) en.opts.sent = { visible: obj.show ?? true, color: obj.color };
     }
+    // positions are relative to obj.origin (Python, float64): readouts add it back
+    if (!obj.target && obj.origin) {
+      const en = this._objects.get(obj.name);
+      if (en) en.opts.origin = obj.origin;
+    }
     return shown;
   }
 

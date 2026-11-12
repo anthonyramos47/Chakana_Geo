@@ -246,7 +246,15 @@ Fields sharing a prefix (`sphere_radius`, `sphere_center`) are grouped in one fo
 fits the scene when the first geometry arrives; **F** frames the scene from the current
 direction, **R** (or the ⤢ button) resets the view; `kv.look_at(position, target)` and
 `kv.reset_camera()` drive the camera from Python. Clip planes and the grid follow the scene
-size, so any unit works. Default sizes are relative: point radius 0.5% and curve tube radius
+size, so any unit works.
+
+**Far from the origin** (geo-referenced data: float32, the GPU's precision, keeps only ~0.5 m
+at 4.5e6). Positions are sent relative to a scene origin, subtracted in float64 first. The
+first positions of a scene decide it: their rounded centre when it is farther than
+max(1000 x their size, 10^4) from zero, else none (ordinary data is sent unchanged). Later
+objects share it; far data arriving after the decision warns. `kv.set_origin(p)` fixes it
+(before registering), `kv.set_origin(None)` or `kv.clear()` decide again. `look_at`,
+`get_camera` and click-to-inspect use your coordinates. Default sizes are relative: point radius 0.5% and curve tube radius
 0.15% of the object's size, arrow length 4% of the target's size (pass a number to fix one).
 Surface meshes take `shading="auto" | "flat" | "smooth"` (auto: flat for polygon meshes,
 smooth for triangle meshes; also a "flat shading" checkbox in the scene panel).

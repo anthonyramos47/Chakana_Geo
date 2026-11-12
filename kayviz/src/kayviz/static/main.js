@@ -625,7 +625,9 @@ renderer.domElement.addEventListener('click', e => {
 
   const objName = hit.object.name;
   const pt      = hit.point;
-  const ptStr   = `(${pt.x.toFixed(4)}, ${pt.y.toFixed(4)}, ${pt.z.toFixed(4)})`;
+  // in the user's coordinates: positions travel relative to a scene origin
+  const o = entry.opts.origin ?? [0, 0, 0];
+  const ptStr   = `(${(pt.x + o[0]).toFixed(4)}, ${(pt.y + o[1]).toFixed(4)}, ${(pt.z + o[2]).toFixed(4)})`;
 
   let html = `<b>${_escHtml(objName)}</b><br>`;
 

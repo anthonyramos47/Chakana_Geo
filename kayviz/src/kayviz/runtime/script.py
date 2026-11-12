@@ -320,7 +320,23 @@ def look_at(position, target=(0.0, 0.0, 0.0)) -> None:
     tgt = [float(x) for x in target]
     if len(pos) != 3 or len(tgt) != 3:
         raise ValueError("look_at: position and target are 3D points")
+    o = ser.get_origin()                  # the viewer works relative to it
+    if o is not None:
+        pos = [p - c for p, c in zip(pos, o)]
+        tgt = [t - c for t, c in zip(tgt, o)]
     _view({"camera": {"position": pos, "target": tgt}})
+
+
+def set_origin(origin) -> None:
+    """Send positions relative to *origin* (a 3D point), or None to let kayviz choose.
+
+    float32, the GPU's precision, keeps ~7 digits: coordinates around 1e6 lose
+    everything below ~0.1. kayviz subtracts the origin in float64 first. By
+    default the first positions of a scene decide: their centre (rounded) when it
+    is farther than max(1000 x their size, 1e4) from zero, else none is used; all
+    later objects share that choice, and kv.clear() starts a new one. Set it
+    before registering: objects already sent keep the frame they were sent in."""
+    ser.set_origin(origin)
 
 
 def reset_camera() -> None:
@@ -386,6 +402,7 @@ def clear() -> None:
     # sink rather than sent to the script channel — route the clear through
     # the same hook so it clears that app's buffer.
     _track([{"action": "clear"}])
+    ser._new_scene()
     sink = _push_sink()
     if sink is not None:
         sink([{"action": "clear"}])
@@ -443,8 +460,15 @@ def get_camera():
 
         kv.screenshot_views(width=16, height=16)
         print(ws.get_camera())
+
+    Positions are in your coordinates (the scene origin added back).
     """
-    return _last_camera
+    o = ser.get_origin()
+    if _last_camera is None or o is None:
+        return _last_camera
+    shift = lambda p: [float(a + b) for a, b in zip(p, o)]
+    return {**_last_camera, "position": shift(_last_camera["position"]),
+            "target": shift(_last_camera["target"])}
 
 
 def _capture(views, width, height, hide_grid, timeout, background="white"):
