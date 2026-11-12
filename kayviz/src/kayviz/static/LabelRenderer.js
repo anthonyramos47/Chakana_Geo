@@ -54,6 +54,15 @@ export class LabelRenderer {
 
   render(viewer, camera) {
     this._viewer = viewer;
+    // No labels shown: free the full-window canvas (DPR² × window, ~20 MB) and
+    // skip the per-frame clear; it is sized again when a label checkbox is ticked.
+    const any = [...viewer.objects.values()].some(e => e.visible && (e.opts.showVertexIndices ||
+                  e.opts.showFaceIndices || e.opts.showEdgeIndices));
+    if (!any) {
+      if (this._canvas.width) { this._canvas.width = 0; this._canvas.height = 0; }
+      return;
+    }
+    if (!this._canvas.width) this.resize(window.innerWidth, window.innerHeight);
     const ctx = this._ctx;
     const W   = this._canvas.width  / this._dpr;
     const H   = this._canvas.height / this._dpr;

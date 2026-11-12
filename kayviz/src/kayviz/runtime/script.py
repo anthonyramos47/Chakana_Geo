@@ -493,8 +493,9 @@ def screenshot(path, views=None, width: int = 900, height: int = 700,
         path:      output path. With a single view this is the file written.
                    With several views a ``_v0``, ``_v1`` … suffix is inserted
                    before the extension, and the list of paths is returned.
-        views:     iterable of ``{"dir": (x,y,z), "up": (x,y,z), "zoom": f}``;
-                   defaults to two three-quarter views.
+        views:     iterable of ``{"dir": (x,y,z), "up": (x,y,z), "zoom": f}`` or
+                   ``{"live": True}``; default: the current view of the open tab,
+                   written to *path* (pass DEFAULT_VIEWS for the two-view pair).
         width:     pixel width of each view.
         height:    pixel height of each view.
         hide_grid: hide the reference grid during capture.
@@ -507,7 +508,7 @@ def screenshot(path, views=None, width: int = 900, height: int = 700,
 
     Requires an open viewer tab — the pixels are produced by the browser.
     """
-    views = list(views) if views is not None else list(DEFAULT_VIEWS)
+    views = list(views) if views is not None else [{"live": True}]
     blobs = _capture(views, width, height, hide_grid, timeout, background)
 
     path = str(path)
@@ -685,10 +686,13 @@ def show(block: "str | bool" = "auto", app: str = None) -> None:
         # A tab from an earlier run reconnected (it reloads itself for this server).
         print(f"[kayviz] Reusing the open viewer tab — {viewer_url}", flush=True)
         _opened.add(name)
+    elif os.environ.get("KAYVIZ_NO_BROWSER", "0") == "1":
+        print(f"[kayviz] Viewer at {viewer_url} (KAYVIZ_NO_BROWSER: open it yourself)",
+              flush=True)
+        _opened.add(name)
     else:
         print(f"[kayviz] Opening {viewer_url}", flush=True)
-        if os.environ.get("KAYVIZ_NO_BROWSER", "0") != "1":
-            webbrowser.open(viewer_url)
+        webbrowser.open(viewer_url)
         _opened.add(name)
 
     if block:
@@ -952,6 +956,7 @@ def _ping_info(base_url: str) -> Optional[dict]:
 def _wait_until_idle(poll_interval: float = 1.0, timeout: float = 24 * 3600.0) -> None:
     """Block until every viewer tab is closed (reloads are tolerated)."""
     deadline = time.monotonic() + timeout
+    hinted = False
     while time.monotonic() < deadline:
         try:
             r = requests.get(f"{_url}/api/script/wait",
@@ -961,6 +966,12 @@ def _wait_until_idle(poll_interval: float = 1.0, timeout: float = 24 * 3600.0) -
             res = r.json() if r.status_code == 200 else {}
             if res.get("idle") and res.get("seen"):
                 return
+            if not res.get("seen") and not hinted:
+                # no tab within connect_timeout (KAYVIZ_NO_BROWSER, remote machine,
+                # browser that did not open): say where to look instead of hanging
+                hinted = True
+                print(f"[kayviz] No viewer tab connected yet — open {_url} in a browser "
+                      f"(Ctrl+C to stop).", flush=True)
             if r.status_code != 200:
                 time.sleep(poll_interval)        # never spin on a failing server
         except (requests.RequestException, ValueError):

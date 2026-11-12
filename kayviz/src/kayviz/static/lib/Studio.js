@@ -124,6 +124,9 @@ export class Studio {
     scene.add(this.floor);
 
     this._envTex = null;   // built lazily on first enable
+    // geometry replaced in place keeps the child count: refit on every scene change
+    this._refitDue = false;
+    document.addEventListener?.('viewer-changed', () => { this._refitDue = true; });
     this._backdrops = { light: gradientTexture(BACKDROPS.light),
                         dark:  gradientTexture(BACKDROPS.dark) };
   }
@@ -202,7 +205,9 @@ export class Studio {
     this._syncSize();
     // Refit when objects are added/removed, and every REFIT frames for edits in place.
     const n = this.scene.children.length;
-    if (this._frame++ % REFIT === 0 || n !== this._nChildren) { this._nChildren = n; this.refit(); }
+    if (this._refitDue || this._frame++ % REFIT === 0 || n !== this._nChildren) {
+      this._nChildren = n; this._refitDue = false; this.refit();
+    }
     this._markShadowCasters();
     this.composer.render();
   }

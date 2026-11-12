@@ -38,14 +38,13 @@ window.addEventListener('unhandledrejection', e => {
 
 // ── Renderer ──────────────────────────────────────────────────────────────────
 const container = document.getElementById('canvas-container');
-// preserveDrawingBuffer keeps the colour buffer readable after render(), which
-// is what canvas.toDataURL() needs for ws.screenshot(); without it the capture
-// comes back blank on most browsers.  alpha lets a capture use a transparent
-// background (screenshot background="transparent"); the viewer itself still
-// shows scene.background.
-const renderer  = new THREE.WebGLRenderer({ antialias: true, alpha: true,
-                                            preserveDrawingBuffer: true });
-renderer.setPixelRatio(window.devicePixelRatio);
+// No preserveDrawingBuffer (it costs a buffer copy per frame on tile-based GPUs):
+// every capture (kv.screenshot, save picture) renders and reads the canvas in the
+// same task, while the drawing buffer is still valid. alpha lets a capture use a
+// transparent background; the viewer itself shows scene.background.
+const renderer  = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+// Above 2 the extra pixels cost GPU memory and time but are not visible.
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.shadowMap.enabled = true;
 renderer.outputColorSpace       = THREE.SRGBColorSpace;
@@ -242,6 +241,7 @@ function setBackgroundTheme(name) {
   ca.needsUpdate = true;
   _bgButton.textContent = t.icon;
   _bgButton.title       = t.title;
+  _bgButton.setAttribute('aria-label', t.title);
   _bgButton.dataset.theme = name;
   try { localStorage.setItem('kayviz.background', name); } catch (_) {}
   window.__invalidate?.();
@@ -262,6 +262,8 @@ function setStudio(on) {
   studio.setEnabled(on);
   if (!on) scene.background = _bgColor;
   _studioButton.title = on ? 'Studio render: on (AO + soft shadows)' : 'Studio render: off';
+  _studioButton.setAttribute('aria-label', 'Studio render');
+  _studioButton.setAttribute('aria-pressed', String(on));
   _studioButton.style.background = on ? '#6a5a20' : '#2a2a2a';
   try { localStorage.setItem('kayviz.studio', on ? '1' : '0'); } catch (_) {}
   window.__invalidate?.(3);
@@ -320,6 +322,13 @@ const _saveButton = _bgButton.cloneNode();
 _saveButton.style.left = '496px';
 _saveButton.textContent = '📷';
 _saveButton.title = 'Save picture';
+_saveButton.setAttribute('aria-label', 'Save picture');
+_saveButton.setAttribute('aria-haspopup', 'true');
+// close the menu on Escape or a click elsewhere
+window.addEventListener('keydown', e => { if (e.key === 'Escape') _saveMenu.style.display = 'none'; });
+window.addEventListener('pointerdown', e => {
+  if (!_saveMenu.contains(e.target) && e.target !== _saveButton) _saveMenu.style.display = 'none';
+});
 const _saveMenu = document.createElement('div');
 Object.assign(_saveMenu.style, {
   position: 'fixed', bottom: '52px', left: '496px', display: 'none', zIndex: '1002',

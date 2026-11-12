@@ -154,12 +154,15 @@ export class Viewer {
     const e = this._objects.get(name);
     if (!e || e.type !== 'point_cloud') return;
     e.opts.radius = r;
-    const newObj = this._buildSphereInstances(e.opts.points, e.opts.points.length / 3, e.opts.color, r);
-    newObj.name    = name;
-    newObj.visible = e.mesh.visible;
-    this.scene.remove(e.mesh);
-    this.scene.add(newObj);
-    e.mesh = newObj;
+    e.radius      = r;
+    // Only the sphere changes: instances, material (and a colour picked meanwhile)
+    // stay; the old sphere is freed.
+    const old = e.mesh.geometry;
+    e.mesh.geometry = new THREE.SphereGeometry(r, 12, 8);
+    e.mesh.computeBoundingSphere();
+    e.mesh.boundingBox = null;
+    old.dispose();
+    window.__invalidate?.();
   }
 
   setCurveRadius(name, radius) {
