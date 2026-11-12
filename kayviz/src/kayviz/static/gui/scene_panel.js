@@ -352,6 +352,12 @@ export class ScenePanel {
       edgeLine.append(edgeChk, edgeLabel);
       row.appendChild(edgeLine);
 
+      // Screen-space wireframe: polygon edges as 1-pixel lines (light for big meshes)
+      row.appendChild(this._labelCheckbox('wireframe', !!entry.opts.wireframe, (checked) => {
+        this._viewer.setWireframe(name, checked);
+        this._viewer.remember(name, 'wireframe', checked);
+      }));
+
       // Flat shading: planar polygons look planar (default for polygon meshes)
       row.appendChild(this._labelCheckbox('flat shading', !!entry.opts.flat, (checked) => {
         this._viewer.setFlat(name, checked);

@@ -14,6 +14,9 @@ import { SceneEntry, EdgeChild, ScalarChild, VectorChild } from './SceneEntry.js
 import { polygonEdges } from './lib/edges.js';
 import { sphereSprites, setSpriteRadius } from './lib/PointSprites.js';
 import { setPatch } from './lib/patches.js';
+import { LineSegments2 } from 'three/addons/lines/LineSegments2.js';
+import { LineSegmentsGeometry } from 'three/addons/lines/LineSegmentsGeometry.js';
+import { LineMaterial } from 'three/addons/lines/LineMaterial.js';
 
 // Default colours of vector quantities, in the order they are handed out
 // (the first one is the former single default).
@@ -241,6 +244,44 @@ export class Viewer {
   }
 
   /** Switch every surface mesh (and the ones registered later) to the shader `matName`. */
+  /**
+   * Screen-space wireframe: the polygon edges (lib/edges.js) as lines `width` CSS
+   * pixels wide (fat lines: 2 triangles per edge), drawn slightly in front of the
+   * surface. Much lighter than the tube overlay for big meshes; a child of the mesh,
+   * so it follows its visibility.
+   */
+  setWireframe(name, on, { color = [0.05, 0.05, 0.05], width = 1 } = {}) {
+    const e = this._objects.get(name);
+    if (!e || e.type !== 'surface_mesh') return;
+    const old = e.opts.wireframe;
+    if (old) {
+      e.mesh.remove(old);
+      old.geometry.dispose();
+      old.material.dispose();
+      e.opts.wireframe = null;
+    }
+    if (on) {
+      const E = this._edges(e), V = e.opts.edgeVerts;
+      if (!E) return;
+      const pos = new Float32Array(E.length * 3);
+      for (let k = 0; k < E.length; k++) {
+        const i = 3 * E[k];
+        pos[3*k] = V[i]; pos[3*k + 1] = V[i + 1]; pos[3*k + 2] = V[i + 2];
+      }
+      const mat = new LineMaterial({
+        color: this._rgb(color), linewidth: width, worldUnits: false,
+        polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -2,
+      });
+      const line = new LineSegments2(new LineSegmentsGeometry().setPositions(pos), mat);
+      line.onBeforeRender = renderer => renderer.getSize(mat.resolution);   // CSS pixels
+      line.userData.overlay = true;            // no studio shadow or AO
+      line.name = `${name}::wireframe`;
+      e.mesh.add(line);
+      e.opts.wireframe = line;
+    }
+    window.__invalidate?.();
+  }
+
   /** Colour of the back side of a surface mesh's faces, or null for the front colour. */
   setBackColor(name, rgb) {
     const e = this._objects.get(name);
@@ -602,6 +643,7 @@ export class Viewer {
         else if (prop === 'opacity')     this.setOpacity(name, value);
         else if (prop === 'showEdges')   this.toggleEdges(name, value);
         else if (prop === 'flat')        this.setFlat(name, value);
+        else if (prop === 'wireframe')   this.setWireframe(name, value);
         else if (prop === 'activeScalar') {
           if (value === null || e.children.get(value)?.type === 'scalar') this.setActiveScalar(name, value);
         } else if (prop.startsWith('range:')) {
@@ -670,6 +712,11 @@ export class Viewer {
           if (obj.show_edges && this._edges(en)) {
             this.addEdgeChild(obj.name, en.opts.edgeVerts, en.opts.edgeIdx,
                               obj.edge_color ?? [0.1, 0.1, 0.1], obj.edge_radius ?? 0);
+          }
+          en.opts.sent.wireframe = !!obj.show_wireframe;
+          if (obj.show_wireframe) {
+            this.setWireframe(obj.name, true, { color: obj.edge_color ?? [0.05, 0.05, 0.05],
+                                                width: obj.wireframe_width ?? 1 });
           }
         }
         break;
@@ -745,6 +792,7 @@ export class Viewer {
 
   _remove(name) {
     const e = this._objects.get(name);
+    if (e?.opts.wireframe) this.setWireframe(name, false);
     if (e) e.dispose(this.scene);
     this._objects.delete(name);
   }

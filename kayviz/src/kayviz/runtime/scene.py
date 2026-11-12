@@ -51,7 +51,8 @@ class Scene:
                               opacity: float = 1.0, show_edges: bool = False,
                               edge_color=(0.1, 0.1, 0.1), show: bool = True,
                               material=None, shading: str = "auto", edge_radius: float = 0.0,
-                              back_color=None):
+                              back_color=None, show_wireframe: bool = False,
+                              wireframe_width: float = 1.0):
         """Mirrors ps.register_surface_mesh(). Pass show_edges=True to overlay the wireframe,
         show=False to register it hidden, material="glass" to pin this mesh's shader."""
         result = ser.surface_mesh(name, vertices, faces,
@@ -59,7 +60,8 @@ class Scene:
                                   opacity=opacity,
                                   show_edges=show_edges, edge_color=edge_color, show=show,
                                   material=material, shading=shading, edge_radius=edge_radius,
-                                  back_color=back_color)
+                                  back_color=back_color, show_wireframe=show_wireframe,
+                                  wireframe_width=wireframe_width)
         self._objects.append(result)
         return self
 

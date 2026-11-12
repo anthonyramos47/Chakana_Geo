@@ -296,7 +296,7 @@ export class Studio {
   _markShadowCasters() {
     this.scene.traverse(o => {
       if (!o.isMesh || o === this.floor) return;
-      if (o.userData.sphereSprites) {          // its depth pass would see squares
+      if (o.userData.sphereSprites || o.userData.overlay) {   // depth pass: squares / lines
         o.castShadow = o.receiveShadow = false;
         return;
       }
@@ -317,7 +317,7 @@ export class Studio {
     const hide = this._hidden;
     this.scene.traverseVisible(o => {
       if (o === this.floor || o === this.grid || o.isLine || o.isPoints || o.isSprite ||
-          o.userData.sphereSprites) {
+          o.userData.sphereSprites || o.userData.overlay) {
         hide.push(o); return;
       }
       const m = o.material && (Array.isArray(o.material) ? o.material[0] : o.material);

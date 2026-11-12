@@ -85,7 +85,7 @@ return {"action": "scene_update", "objects": s.snapshot()}
 
 | Method | Polyscope equivalent |
 |---|---|
-| `register_surface_mesh(name, V, F, color, face_size, opacity, show_edges, edge_color, material, back_color)` | `ps.register_surface_mesh`; `back_color` colours the faces seen from behind (orientation checks) |
+| `register_surface_mesh(name, V, F, color, face_size, opacity, show_edges, edge_color, material, back_color)` | `ps.register_surface_mesh`; `back_color` colours the faces seen from behind (orientation checks); `show_wireframe=True` draws the polygon edges as lines `wireframe_width` pixels wide in `edge_color` (also a "wireframe" checkbox; much lighter than `show_edges` tubes for big meshes) |
 | `register_curve_network(name, P, E, color, radius)` — `radius=0` flat lines, `>0` tubes | `ps.register_curve_network` |
 | `register_point_cloud(name, X, color, radius, point_render="sprite")` | `ps.register_point_cloud`; points are drawn as sphere sprites (2 triangles each, 1M points at ~50 fps on an M-series Mac); `point_render="sphere"` uses real spheres (~170 triangles each), which also cast studio shadows and get AO |
 | `register_vector_field(name, origins, vectors, length, radius, color)` | — |

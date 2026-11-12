@@ -351,7 +351,8 @@ def _triangulate(polys, V: np.ndarray, name: str = "") -> tuple[np.ndarray, np.n
 def surface_mesh(name: str, vertices, faces, color=(0.8, 0.8, 0.8),
                  face_size=None, opacity=1.0, show_edges=False,
                  edge_color=(0.1, 0.1, 0.1), edge_radius: float = 0.0, show: bool = True,
-                 material=None, shading: str = "auto", back_color=None):
+                 material=None, shading: str = "auto", back_color=None,
+                 show_wireframe: bool = False, wireframe_width: float = 1.0):
     """Mirrors ps.register_surface_mesh(). show=False registers the object hidden (its checkbox in the scene panel unticked).
     material (e.g. "glass") pins this mesh's shader; None follows the global Shader dropdown.
 
@@ -401,9 +402,15 @@ def surface_mesh(name: str, vertices, faces, color=(0.8, 0.8, 0.8),
         "show":          bool(show),
         "shading":       _shading(shading, name, polygons=not uniform or first_len > 3),
     }
-    if show_edges:
+    if show_edges or show_wireframe:
         mesh_dict["edge_color"]  = _rgb(edge_color, name, "edge_color")
+    if show_edges:
         mesh_dict["edge_radius"] = float(edge_radius)
+    if show_wireframe:                    # polygon edges as lines of constant pixel width
+        if not float(wireframe_width) > 0:
+            raise ValueError(f"{name}: wireframe_width must be positive, got {wireframe_width}")
+        mesh_dict["show_wireframe"] = True
+        mesh_dict["wireframe_width"] = float(wireframe_width)
     if material is not None:
         mesh_dict["material"] = str(material)
     if back_color is not None:            # colour of the faces seen from behind

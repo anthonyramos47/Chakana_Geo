@@ -263,3 +263,14 @@ def test_isolines_option():
         ser.scalar_quantity("M", "h", np.arange(2.0), defined_on="faces", isolines=True)
     with pytest.raises(ValueError, match="iso_spacing"):
         ser.scalar_quantity("M", "h", np.arange(4.0), isolines=True, iso_spacing=0)
+
+
+def test_wireframe_option():
+    import numpy as np
+    from kayviz import serializers as ser
+    V, F = np.eye(3), [[0, 1, 2]]
+    d = ser.surface_mesh("M", V, F, show_wireframe=True, wireframe_width=2, edge_color=(1, 0, 0))
+    assert d["show_wireframe"] and d["wireframe_width"] == 2.0 and d["edge_color"] == [1.0, 0.0, 0.0]
+    assert "show_wireframe" not in ser.surface_mesh("M", V, F)
+    with pytest.raises(ValueError, match="wireframe_width"):
+        ser.surface_mesh("M", V, F, show_wireframe=True, wireframe_width=0)

@@ -10,7 +10,8 @@ const three = 'node_modules/three';
 const entry = ['controls/OrbitControls.js', 'environments/RoomEnvironment.js',
   'postprocessing/EffectComposer.js', 'postprocessing/GTAOPass.js',
   'postprocessing/OutputPass.js', 'postprocessing/Pass.js',
-  'postprocessing/RenderPass.js', 'utils/BufferGeometryUtils.js'];
+  'postprocessing/RenderPass.js', 'utils/BufferGeometryUtils.js',
+  'lines/LineSegments2.js'];
 
 rmSync(out, { recursive: true, force: true });
 mkdirSync(join(out, 'three', 'addons'), { recursive: true });

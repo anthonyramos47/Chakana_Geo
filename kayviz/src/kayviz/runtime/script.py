@@ -200,7 +200,8 @@ def register_surface_mesh(name: str, vertices, faces,
                           edge_color=(0.1, 0.1, 0.1),
                           edge_radius: float = 0.0, show: bool = True,
                           material=None, shading: str = "auto", face_size=None,
-                          back_color=None) -> None:
+                          back_color=None, show_wireframe: bool = False,
+                          wireframe_width: float = 1.0) -> None:
     """Mirrors ps.register_surface_mesh(). Pass show_edges=True to overlay the wireframe,
     show=False to register it hidden (tick it in the scene panel to show it).
 
@@ -208,7 +209,9 @@ def register_surface_mesh(name: str, vertices, faces,
     picks 3% of the median edge length. The shader is global (scene panel "Shader") unless
     material names one for this mesh, e.g. material="glass". shading: "flat", "smooth" or
     "auto" (flat for polygon meshes, smooth for triangle meshes). back_color: colour of
-    the faces seen from behind (orientation checks), None for the front colour."""
+    the faces seen from behind (orientation checks), None for the front colour.
+    show_wireframe: the polygon edges as lines wireframe_width pixels wide, in
+    edge_color (much lighter than show_edges' tubes for big meshes)."""
     if material is not None and material not in KNOWN_MATERIALS:
         import warnings
         warnings.warn(f"{name}: unknown material {material!r} (built-in: "
@@ -218,7 +221,8 @@ def register_surface_mesh(name: str, vertices, faces,
                               color=color, opacity=opacity,
                               show_edges=show_edges, edge_color=edge_color,
                               edge_radius=edge_radius, show=show, material=material,
-                              shading=shading, face_size=face_size, back_color=back_color)
+                              shading=shading, face_size=face_size, back_color=back_color,
+                              show_wireframe=show_wireframe, wireframe_width=wireframe_width)
     _push(result)
 
 
