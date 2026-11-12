@@ -264,10 +264,18 @@ back). The choice, position and size are remembered.
 returns a dict), renders the current scene in plain and in studio mode and reports frame
 times (median, 95th percentile; each frame timed until the GPU finished it), triangles,
 draw calls, and memory: geometry buffers exactly; screen, studio and shadow buffers as
-estimates from their formats; the browser's JavaScript heap. For offline Python-side speed
-and memory evaluation across standard synthetic scenes, run `python -m kayviz.evaluate`
-(`--suite speed,memory`, `--scenes small|large|<id>`, `--out DIR`, `--compare baseline.json`,
-`--quick`), which writes `evaluate-<date>-<host>.json` and `.md`.
+estimates from their formats; the browser's JavaScript heap. `toggles=True` also times
+studio on/off, the largest mesh's edge overlay and flat shading; `tab_memory=True` the tab's
+whole memory (Chrome, on a cross-origin isolated page: `KAYVIZ_ISOLATED=1` before the
+server starts).
+
+**Evaluation.** `python -m kayviz.evaluate` measures standard synthetic scenes and writes
+`evaluate-<date>-<host>.json` and `.md` (`--suite`, `--scenes small|large|<id>`, `--out DIR`,
+`--quick`). Suites: `speed` and `memory` (Python side, the default) and `browser` (starts
+its own viewer, opens it, and per scene times the delivery until the tab has drawn it,
+frames, toggles and the tab's memory; `--no-open` prints the URL instead, `--frames N`;
+keep the tab visible). `--compare baseline.json` exits 1 when a metric got worse than its
+tolerance (time +25 %, memory +15 %, bytes +5 %; changes under 2 ms / 2 MB never count).
 
 **Access.** The viewer answers only this machine's programs and its own page: other web
 pages open in your browser cannot read the scene, run callbacks or stop the server

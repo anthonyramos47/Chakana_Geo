@@ -850,3 +850,37 @@ def test_benchmark_round_trip_and_table():
     ''')
     assert out["fps"] == 500.0
     assert "frame, median (ms)" in out["table"] and "GPU memory (MB)" in out["table"]
+
+
+def test_a_timed_push_is_acknowledged_by_the_tab():
+    # kayviz.evaluate times delivery: a push with seq, the tab answers "applied".
+    out = _run('''
+        kv.init()
+        base = kv.url()
+        with connect(base.replace("http", "ws") + "/api/script/ws") as ws:
+            time.sleep(0.2)                     # registered as a client
+            kv.script._push_with_seq([kv.serializers.point_cloud("P", np.zeros((2, 3)))], 7)
+            msg = recv_until(ws, lambda m: m.get("seq") == 7)
+            out["names"] = [o["name"] for o in msg["objects"]]
+            pending = requests.get(base + "/api/script/applied",
+                                   params={"seq": 7, "timeout": 0.2}).json()
+            ws.send(json.dumps({"action": "applied", "seq": 7}))
+            done = requests.get(base + "/api/script/applied",
+                                params={"seq": 7, "timeout": 5}).json()
+        out["pending_ok"] = pending["ok"]
+        out["done_ok"] = done["ok"]
+        out["buffered"] = requests.get(base + "/api/script/ping").json()["objects"]
+    ''')
+    assert out["names"] == ["P"]
+    assert out["pending_ok"] is False and out["done_ok"] is True
+    assert out["buffered"] == 1
+
+
+@pytest.mark.parametrize("isolated", [False, True])
+def test_cross_origin_isolation_headers_only_on_request(isolated):
+    from fastapi.testclient import TestClient
+    from kayviz.server import create_app
+    client = TestClient(create_app(isolated=isolated), base_url="http://127.0.0.1")
+    h = client.get("/").headers
+    assert ("cross-origin-embedder-policy" in h) is isolated
+    assert (h.get("cross-origin-opener-policy") == "same-origin") is isolated

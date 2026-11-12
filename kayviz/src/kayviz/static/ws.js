@@ -89,6 +89,28 @@ export class WSClient {
 
   // ── Internals ─────────────────────────────────────────────────────────────
 
+  /** Tell the server when the frame showing push *seq* is drawn (kayviz.evaluate
+   *  times delivery with it). The render loop's own requestAnimationFrame was
+   *  registered first, so this callback runs after it drew; reading one pixel
+   *  waits until the GPU finished. Chrome pauses requestAnimationFrame in a window
+   *  that is not in front: then the frame is drawn here, after 250 ms. */
+  _ackDrawn(seq) {
+    let sent = false;
+    const ack = () => {
+      if (sent) return;
+      sent = true;
+      const r = window.__renderer;
+      if (r) {
+        r.setRenderTarget(null);
+        const gl = r.getContext();
+        gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(4));
+      }
+      this.send('applied', { seq });
+    };
+    requestAnimationFrame(ack);
+    setTimeout(() => { if (!sent) { window.__renderFrame?.(); ack(); } }, 250);
+  }
+
   _connect() {
     this._pending ??= [];
     this.ws = new WebSocket(this._url);
@@ -133,6 +155,7 @@ export class WSClient {
       for (const cb of this._handlers) {
         try { cb(data); } catch (err) { console.error('[kayviz] message handler failed:', err); }
       }
+      if (Number.isInteger(data.seq)) this._ackDrawn(data.seq);
 
       if (errors.length) {
         this._setStatus(`Could not show ${errors.length} object(s): ${errors[0]}`, true);

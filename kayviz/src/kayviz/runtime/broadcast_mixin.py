@@ -198,11 +198,15 @@ class BroadcastMixin:
             self._buffer_objects(objects)
             await self._broadcast_encoded(data)
 
-    async def push(self, objects: list[dict]) -> None:
+    async def push(self, objects: list[dict], seq: int | None = None) -> None:
         """Merge objects into buffer and broadcast. Raises (and buffers nothing) when
-        an object cannot be encoded: buffered, it would break every later snapshot."""
+        an object cannot be encoded: buffered, it would break every later snapshot.
+        *seq* asks the tabs to report when they drew it (kayviz.evaluate)."""
+        msg = {"action": "scene_update", "objects": objects}
+        if seq is not None:
+            msg["seq"] = int(seq)
         async with self._order_lock:
-            data = await encode_async({"action": "scene_update", "objects": objects})
+            data = await encode_async(msg)
             self._buffer_objects(objects)
             await self._broadcast_encoded(data)
 

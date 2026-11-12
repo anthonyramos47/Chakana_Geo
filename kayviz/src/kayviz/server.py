@@ -47,13 +47,22 @@ class _NoCacheMiddleware(BaseHTTPMiddleware):
         return response
 
 
+class _IsolationMiddleware(BaseHTTPMiddleware):
+    """Cross-origin isolation: performance.measureUserAgentSpecificMemory() needs it."""
+    async def dispatch(self, request: Request, call_next):
+        response = await call_next(request)
+        response.headers["Cross-Origin-Opener-Policy"] = "same-origin"
+        response.headers["Cross-Origin-Embedder-Policy"] = "require-corp"
+        return response
+
+
 # Browsers send small JSON messages; the limit only bounds what a client can make
 # the server buffer (uvicorn's own default is 16 MB).
 WS_MAX_SIZE = 4 * 1024 * 1024
 
 
 def create_app(apps=(), shared: bool = False, default_app: str | None = None,
-               network: bool = False) -> FastAPI:
+               network: bool = False, isolated: bool | None = None) -> FastAPI:
     """
     Build the FastAPI app: viewer page, static frontend, and one router per
     registered app (plus any registered later).
@@ -66,7 +75,13 @@ def create_app(apps=(), shared: bool = False, default_app: str | None = None,
                      Defaults to the most recently registered app.
         network:     served on a network interface (see kayviz.security): the
                      Host check is off; Origin and cross-site checks stay.
+        isolated:    send COOP/COEP headers so the page is cross-origin isolated
+                     and can measure its own memory (kayviz.evaluate). Off by
+                     default (env KAYVIZ_ISOLATED=1): a custom panel loading
+                     resources from another origin would break.
     """
+    if isolated is None:
+        isolated = os.environ.get("KAYVIZ_ISOLATED") == "1"
     script = get_app("script")
     if script is None:
         register_app(ScriptApp(shared=shared))
@@ -89,6 +104,8 @@ def create_app(apps=(), shared: bool = False, default_app: str | None = None,
 
     fastapi_app = FastAPI(title="kayviz", lifespan=lifespan)
     fastapi_app.add_middleware(_NoCacheMiddleware)
+    if isolated:
+        fastapi_app.add_middleware(_IsolationMiddleware)
     fastapi_app.add_middleware(LocalOnlyMiddleware, network=network)   # outermost
     fastapi_app.state.default_app = default_app
     # Tabs left from an earlier server reconnect to a new one on the same port;

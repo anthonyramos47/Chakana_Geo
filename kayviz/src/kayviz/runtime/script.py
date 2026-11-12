@@ -350,6 +350,17 @@ def push_objects(objects: list) -> None:
     _send("push", objects=objects)
 
 
+def _push_with_seq(objects: list, seq: int) -> None:
+    """push_objects, asking the tabs to report when they drew it: they answer
+    {action: "applied", seq}, read at /api/script/applied (kayviz.evaluate).
+    Needs this process's own server (local or hosted mode)."""
+    _ensure_init()
+    if _mode not in ("local", "hosted"):
+        raise RuntimeError("kayviz: timed pushes need this process's own server")
+    _track(objects)
+    _run_on_loop(_registry.get_app("script").push(objects, seq=seq))
+
+
 def set_enabled(name: str, enabled: bool) -> None:
     """Mirrors structure.set_enabled()."""
     _push(ser.set_enabled(name, enabled))
@@ -551,16 +562,23 @@ def screenshot_views(views=None, width: int = 900, height: int = 700,
     return _capture(views, width, height, hide_grid, timeout, background)
 
 
-def benchmark(frames: int = 60, timeout: float = 60.0, show: bool = True) -> dict:
+def benchmark(frames: int = 60, timeout: float = 60.0, show: bool = True,
+              toggles: bool = False, tab_memory: bool = False) -> dict:
     """Measure the open viewer tab drawing the current scene, in plain and in studio
     mode: frame times (each frame timed until the GPU finished it), triangles, draw
     calls, and memory (geometry exactly; screen, studio and shadow buffers estimated
     from their formats; the browser's JavaScript heap). Prints a table when *show*.
 
+    toggles: also time studio on/off, the largest mesh's edge overlay and flat
+    shading (key "toggles"). tab_memory: also the tab's whole memory
+    (memory_mb["tab"]); only a cross-origin isolated page can measure it
+    (KAYVIZ_ISOLATED=1 before the server starts), else None.
+
     Returns the measurements as a dict (keys "modes", "scene", "memory_mb")."""
     _ensure_init()
     try:
-        r = requests.post(f"{_url}/api/script/benchmark/request", json={"frames": frames},
+        r = requests.post(f"{_url}/api/script/benchmark/request",
+                          json={"frames": frames, "toggles": toggles, "tab_memory": tab_memory},
                           timeout=10).json()
         if not r.get("ok"):
             raise RuntimeError(f"benchmark: {r.get('error')} — open {_url} in a browser")

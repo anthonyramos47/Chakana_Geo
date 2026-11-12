@@ -2,11 +2,13 @@
 CLI entry point for `python -m kayviz.evaluate`.
 
 Flags:
-    --suite speed,memory       Suites to run (default: all available)
+    --suite speed,memory       Suites to run (default: speed,memory; browser on request)
     --scenes small|large|<id>  Scene group or comma-separated scene ids
     --out DIR                  Output directory for JSON and Markdown reports
     --compare FILE             Compare against baseline JSON; exit 1 on regression
     --quick                    1 repetition, small scenes (for CI and tests)
+    --no-open                  browser suite: print the URL instead of opening it
+    --frames N                 browser suite: frames per mode (default 60)
 """
 
 from __future__ import annotations
@@ -20,12 +22,13 @@ from . import report as _report
 from . import scenes as _scenes
 from . import speed as _speed
 
-AVAILABLE_SUITES = ("speed", "memory")
+AVAILABLE_SUITES = ("speed", "memory", "browser")
+DEFAULT_SUITES = ("speed", "memory")         # browser needs a tab: on request
 
 
 def _resolve_suites(spec: str | None) -> list[str]:
     if not spec:
-        return list(AVAILABLE_SUITES)
+        return list(DEFAULT_SUITES)
     out: list[str] = []
     for part in spec.split(","):
         s = part.strip()
@@ -46,7 +49,7 @@ def run(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--suite",
         default=None,
-        help="comma-separated suites to run (default: all available: speed,memory)",
+        help="comma-separated suites: speed, memory, browser (default: speed,memory)",
     )
     parser.add_argument(
         "--scenes",
@@ -69,6 +72,10 @@ def run(argv: list[str] | None = None) -> int:
         action="store_true",
         help="1 repetition, small scenes (for CI and tests)",
     )
+    parser.add_argument("--no-open", action="store_true",
+                        help="browser suite: print the viewer URL instead of opening it")
+    parser.add_argument("--frames", type=int, default=60,
+                        help="browser suite: frames timed per mode (default 60)")
     args = parser.parse_args(argv)
 
     try:
@@ -87,6 +94,10 @@ def run(argv: list[str] | None = None) -> int:
             results.extend(_speed.run_suite(scene_list, reps=reps))
         elif suite == "memory":
             results.extend(_memory.run_suite(scene_list))
+        elif suite == "browser":
+            from . import browser as _browser
+            results.extend(_browser.run_suite(scene_list, frames=args.frames,
+                                              open_browser=not args.no_open))
 
     rep = _report.build_report(results)
     json_path, md_path = _report.write_report(rep, out_dir=args.out)

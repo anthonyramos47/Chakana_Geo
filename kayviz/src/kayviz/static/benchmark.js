@@ -59,6 +59,63 @@ export function bufferBytes(renderer, studio) {
   return { screen, composer, shadow, width: size.x, height: size.y };
 }
 
+/** Wait until the GPU finished the frame (a 1-pixel read-back). */
+function gpuSync(renderer) {
+  const gl = renderer.getContext();
+  renderer.setRenderTarget(null);
+  gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(4));
+}
+
+/** ms from doing *change* until the next frame is on screen. */
+function timedChange(renderer, change) {
+  const t0 = performance.now();
+  change();
+  window.__renderFrame();
+  gpuSync(renderer);
+  return performance.now() - t0;
+}
+
+/**
+ * Time the switches a user notices: studio on (the first one compiles its
+ * shaders) and off, the edge overlay of the largest mesh, flat shading. Each is
+ * undone afterwards. Run it before benchmark(), which switches studio itself.
+ */
+export function toggleTimes() {
+  const renderer = window.__renderer, viewer = window.__viewer, studio = window.__studio;
+  const out = {};
+  const wasStudio = studio.enabled;
+  if (wasStudio) window.__setStudio(false);
+  out.studio_on_ms  = timedChange(renderer, () => window.__setStudio(true));
+  out.studio_off_ms = timedChange(renderer, () => window.__setStudio(false));
+  let big = null, most = -1;
+  for (const [name, e] of viewer?._objects ?? []) {
+    const n = e.type === 'surface_mesh' ? e.opts.faces?.length ?? 0 : -1;
+    if (n > most) { most = n; big = name; }
+  }
+  if (big) {
+    const e = viewer._objects.get(big);
+    if (!e.children.has('edges')) {
+      out.edges_on_ms = timedChange(renderer, () => viewer.toggleEdges(big, true));
+      viewer.toggleEdges(big, false);
+    }
+    const flat = !!e.opts.flat;
+    out.flat_toggle_ms = timedChange(renderer, () => viewer.setFlat(big, !flat));
+    viewer.setFlat(big, flat);
+  }
+  window.__setStudio(wasStudio);
+  window.__invalidate?.(2);
+  return out;
+}
+
+/** Memory of this tab (MB), when the page is cross-origin isolated (Chrome). The
+ *  browser may answer only at its next garbage collection: give up after *ms*. */
+async function tabMemoryMB(ms = 20000) {
+  if (!globalThis.crossOriginIsolated || !performance.measureUserAgentSpecificMemory) return null;
+  const timeout = new Promise(resolve => setTimeout(() => resolve(null), ms));
+  const r = await Promise.race([performance.measureUserAgentSpecificMemory(), timeout]);
+  return r ? r.bytes / MB : null;
+}
+
 function frameTimes(renderer, frames) {
   const gl = renderer.getContext(), pixel = new Uint8Array(4), times = [];
   for (let i = 0; i < frames + 5; i++) {         // 5 warm-up frames (shader compiles)
@@ -111,7 +168,12 @@ export function benchmark({ frames = 60 } = {}) {
 /** A job from Python (kv.benchmark): run it and post the result back. */
 export async function runBenchmarkJob(job) {
   let result = null, error = null;
-  try { result = benchmark({ frames: job.frames ?? 60 }); }
+  try {
+    const toggles = job.toggles ? toggleTimes() : null;
+    result = benchmark({ frames: job.frames ?? 60 });
+    if (toggles) result.toggles = toggles;
+    if (job.tab_memory) result.memory_mb.tab = await tabMemoryMB();
+  }
   catch (e) { error = String(e?.message ?? e); }
   try {
     await fetch(api('script/screenshot/result'), {

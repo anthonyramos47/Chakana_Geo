@@ -41,6 +41,7 @@ python -m pytest kayviz/tests/test_runtime.py -k callback -q   # single case
 python examples/polyhedral_mesh/run.py  # a standalone project: own server, opens its tab
 python -m kayviz                        # shared viewer; notebooks' kv.init() attach to it
 python -m kayviz.evaluate --quick       # speed + memory evaluation -> evaluate-<date>-<host>.{json,md}
+python -m kayviz.evaluate --suite browser   # opens a tab: delivery, frames, toggles, tab memory
 ```
 
 A process that registered its own apps always starts its own viewer (next free port) even if a shared one is running.

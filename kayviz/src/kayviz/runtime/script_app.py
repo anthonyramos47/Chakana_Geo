@@ -23,6 +23,7 @@ browser to render and hand them back):
 from __future__ import annotations
 
 import asyncio
+import json
 import time
 import uuid
 from dataclasses import dataclass
@@ -60,6 +61,9 @@ class ScriptApp(BroadcastMixin, GUIApp):
         self._shot_queue: list[dict] = []           # unused (old pages poll /pending)
         self._shot_pending: set[str] = set()        # sent to a tab, not collected yet
         self._shot_done: dict[str, dict] = {}
+        # Delivery timing (kayviz.evaluate): a push may carry a seq; the tab answers
+        # {action: "applied", seq} once it has drawn the frame that shows it.
+        self._applied: dict[int, float] = {}
 
     # ── GUIApp overrides ──────────────────────────────────────────────────────
 
@@ -77,7 +81,15 @@ class ScriptApp(BroadcastMixin, GUIApp):
 
         try:
             while True:
-                await ws.receive_text()
+                text = await ws.receive_text()
+                try:
+                    msg = json.loads(text)
+                except ValueError:
+                    continue
+                if isinstance(msg, dict) and msg.get("action") == "applied":
+                    seq = msg.get("seq")
+                    if isinstance(seq, int) and len(self._applied) < 10_000:
+                        self._applied[seq] = time.monotonic()
         except WebSocketDisconnect:
             pass
         except Exception:
@@ -164,8 +176,20 @@ class ScriptApp(BroadcastMixin, GUIApp):
             jid = uuid.uuid4().hex
             app._shot_pending.add(jid)
             await app._reply(tab, {"action": "benchmark", "id": jid,
-                                   "frames": int(payload.get("frames", 60))})
+                                   "frames": int(payload.get("frames", 60)),
+                                   "toggles": bool(payload.get("toggles", False)),
+                                   "tab_memory": bool(payload.get("tab_memory", False))})
             return {"ok": True, "id": jid}
+
+        @router.get("/applied")
+        async def applied(seq: int, timeout: float = 60.0):
+            """When (time.monotonic of this process) a tab drew push *seq*."""
+            deadline = time.monotonic() + timeout
+            while time.monotonic() < deadline:
+                if seq in app._applied:
+                    return {"ok": True, "t": app._applied.pop(seq)}
+                await asyncio.sleep(0.005)
+            return {"ok": False, "error": "timeout waiting for the tab"}
 
         @router.get("/screenshot/pending")
         async def screenshot_pending():
