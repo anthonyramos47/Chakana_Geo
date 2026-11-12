@@ -87,6 +87,7 @@ export class Studio {
     this.up       = up;           // 'y' or 'z': the floor lies across it
     this.enabled  = false;
     this.theme    = 'dark';
+    this.studioPixelRatio = 1;
     this._frame   = 0;
     this._size    = new THREE.Vector2();
     this._pr      = 0;
@@ -97,9 +98,15 @@ export class Studio {
     // shadow: darkness of the floor shadow.
     this.params   = { ao: 0.8, aoRadius: 0.2, shadow: 0.3 };
 
-    // Composer on a half-float, multisampled target.
+    // RenderPass draws into readBuffer (renderTarget2, 4x MSAA + depth); the post
+    // passes (GTAO blend, OutputPass) only draw full-screen quads into writeBuffer
+    // (renderTarget1) or the screen, so renderTarget1 needs neither MSAA nor depth.
+    // This relies on an even number of swapping passes per frame (GTAO, Output):
+    // disabling or adding one would make the next RenderPass draw into renderTarget1.
     const target = new THREE.WebGLRenderTarget(4, 4, { type: THREE.HalfFloatType, samples: 4 });
     this.composer = new EffectComposer(renderer, target);
+    this.composer.renderTarget1.samples = 0;
+    this.composer.renderTarget1.depthBuffer = false;
     this.composer.addPass(new RenderPass(scene, camera));
     this.gtao = new GTAOPass(scene, camera, 4, 4);
     this.gtao.output = GTAOPass.OUTPUT.Default;
@@ -190,9 +197,10 @@ export class Studio {
     });
   }
 
-  setAO(v)        { this.params.ao = v; this.gtao.blendIntensity = v; }
-  setAORadius(v)  { this.params.aoRadius = v; this._applyAORadius(); }
-  setShadow(v)    { this.params.shadow = v; this.floor.material.opacity = v; }
+  setAO(v)            { this.params.ao = v; this.gtao.blendIntensity = v; }
+  setAORadius(v)      { this.params.aoRadius = v; this._applyAORadius(); }
+  setShadow(v)        { this.params.shadow = v; this.floor.material.opacity = v; }
+  setPixelRatioCap(x) { this.studioPixelRatio = x > 0 ? x : 1; window.__invalidate?.(); }
 
   /** 'light' | 'dark': picks the gradient backdrop (only while enabled). */
   applyTheme(name) {
@@ -274,10 +282,11 @@ export class Studio {
   _syncSize() {
     const r = this.renderer;
     r.getSize(this._size);
-    const pr = r.getPixelRatio();
+    const pr = Math.min(r.getPixelRatio(), this.studioPixelRatio);
     const key = `${this._size.x}x${this._size.y}@${pr}`;
     if (key === this._sizeKey) return;
     this._sizeKey = key;
+    this._pr = pr;
     this.composer.setPixelRatio(pr);
     this.composer.setSize(this._size.x, this._size.y);
   }

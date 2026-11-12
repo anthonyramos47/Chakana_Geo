@@ -132,10 +132,13 @@ is hidden. Saved in `localStorage['kayviz.studio']`; from code `window.__setStud
 - The scene background is removed during the AO pass: GTAO renders its depth/normal
   buffer with `scene.overrideMaterial`, which also catches the plane three.js uses
   to draw a texture background, so the backdrop would show up as a dark quad.
-- GPU memory: about +0.7 GB at DPR 2 (multisampled half-float composer targets,
-  GTAO targets, 2048² VSM shadow maps); a capture at 16.7 Mpx measured +3.3 GB.
-  On Apple silicon that is system RAM, so switching studio off disposes all of
-  it (`Studio._releaseGPU`), and saved pictures are capped at 12 Mpx — an
+- GPU memory: studio passes render at pixel ratio `min(devicePixelRatio, studioPixelRatio)`
+  with `studioPixelRatio = 1` by default (`window.__studio.setPixelRatioCap(x)` changes it) while
+  `OutputPass` still fills the full canvas, and the composer uses one 4× MSAA half-float target
+  for `RenderPass` plus a non-MSAA half-float target without depth for the post passes. On a
+  2744×1518 (DPR 2) canvas this keeps studio + 2048² VSM shadow buffers at ~167 MB (87.4 MB
+  studio + 80.0 MB shadow, down from ~620 MB). On Apple silicon that is system RAM, so switching
+  studio off disposes all of it (`Studio._releaseGPU`), and saved pictures are capped at 12 Mpx — an
   uncapped 4× studio save (~66 Mpx) froze a 16 GB Mac.
 - Costs about 2.5x a plain frame (≈34 ms vs 13 ms at DPR 2 on the test machine), so
   it is meant for figures and screenshots; `ws.screenshot()` captures through it
@@ -160,7 +163,8 @@ global Shader dropdown.
 The camera button (right of the bulb) opens a menu: resolution (1× or 2× the
 screen, capped at 12 Mpx and the GPU's max texture size) and *Current background* or *Empty
 background*. It renders one frame through `window.__renderFrame` (so studio mode
-is included) and downloads `<app>_<timestamp>.png`. Empty background clears to
+is included; while saving, studio temporarily raises its pixel-ratio cap to the full capture
+ratio and restores it afterwards) and downloads `<app>_<timestamp>.png`. Empty background clears to
 alpha 0 and hides the grid; the studio floor shadow stays, half-transparent.
 CSS labels (vertex/face indices) are not part of the picture. From code:
 `window.__savePicture({ background: 'transparent', scale: 2 })`.
