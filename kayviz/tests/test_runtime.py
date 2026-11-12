@@ -884,3 +884,80 @@ def test_cross_origin_isolation_headers_only_on_request(isolated):
     h = client.get("/").headers
     assert ("cross-origin-embedder-policy" in h) is isolated
     assert (h.get("cross-origin-opener-policy") == "same-origin") is isolated
+
+
+def test_attach_mode_pushes_binary_frames():
+    # P2-A: arrays reach a shared viewer as one binary frame, unchanged.
+    port = str(BASE + 70)
+    server = subprocess.Popen([sys.executable, "-m", "kayviz", "--port", port],
+                              stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    try:
+        out = _run(f'''
+            base = "http://127.0.0.1:{port}"
+            for _ in range(100):
+                try:
+                    requests.get(base + "/api/script/ping", timeout=0.2); break
+                except Exception:
+                    time.sleep(0.1)
+            kv.init(url=base)
+            rng = np.random.default_rng(0)
+            V = rng.random((50_000, 3)); F = rng.integers(0, 50_000, (100_000, 3))
+            sent = []
+            import kayviz.runtime.script as S
+            real_post = S.requests.post
+            def spy(url, **kw):
+                sent.append(kw.get("headers", {{}}).get("Content-Type"))
+                return real_post(url, **kw)
+            S.requests.post = spy
+            with connect(base.replace("http", "ws") + "/api/script/ws", max_size=None) as ws:
+                time.sleep(0.2)
+                kv.register_surface_mesh("Big", V, F)
+                msg = recv_until(ws, lambda m: any(o.get("name") == "Big" for o in m.get("objects", [])))
+            o = next(o for o in msg["objects"] if o["name"] == "Big")
+            out["same_vertices"] = bool(np.array_equal(o["vertices"], V.astype(np.float32).ravel()))
+            out["same_faces"] = bool(np.array_equal(o["faces"], F.astype(np.int32).ravel()))
+            out["content_type"] = sent[-1]
+            # an old JSON client still works, a broken body is refused
+            r = requests.post(base + "/api/script/push", json={{"objects": [
+                {{"type": "point_cloud", "name": "Old", "points": [0, 0, 0]}}]}})
+            out["json_ok"] = r.status_code
+            out["bad"] = requests.post(base + "/api/script/push", data=b"\\x00\\x01",
+                                       headers={{"Content-Type": "application/x-kayviz-frame"}}).status_code
+        ''')
+    finally:
+        server.terminate()
+        server.wait(5)
+    assert out["content_type"] == "application/x-kayviz-frame"
+    assert out["same_vertices"] and out["same_faces"]
+    assert out["json_ok"] == 200 and out["bad"] == 400
+
+
+def test_gui_app_load_can_return_a_binary_frame():
+    # P2-B: /load?format=binary sends the initial scene as one frame (the page asks for it).
+    out = _run('''
+        V = np.random.default_rng(0).random((1000, 3))
+        from dataclasses import dataclass
+        class App(kv.GUIApp):
+            name = "loadapp"
+            @kv.gui_state
+            @dataclass
+            class state_cls:
+                x: float = 0.0
+            def register_actions(self):
+                pass
+            def initial_scene(self, mesh_name=""):
+                return {"objects": [kv.serializers.point_cloud("P", V)]}
+        kv.register_app(App())
+        kv.init()
+        base = kv.url()
+        b = requests.post(base + "/api/loadapp/load", params={"format": "binary"})
+        j = requests.post(base + "/api/loadapp/load")
+        out["types"] = [b.headers["content-type"], j.headers["content-type"]]
+        pts = decode(b.content)["objects"][0]["points"]
+        out["same"] = bool(np.array_equal(pts, V.astype(np.float32).ravel()))
+        out["json_points"] = len(j.json()["objects"][0]["points"])
+        out["smaller"] = len(b.content) < len(j.content)
+    ''')
+    assert out["types"][0] == "application/x-kayviz-frame"
+    assert out["types"][1].startswith("application/json")
+    assert out["same"] and out["json_points"] == 3000 and out["smaller"]

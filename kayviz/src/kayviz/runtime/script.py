@@ -1023,12 +1023,17 @@ def _send(op: str, objects: list = None, name: str = None) -> None:
                 "clear":  lambda: script.do_clear()}[op]()
         _run_on_loop(coro)
         return
-    from .wire import jsonable
-    path, payload = {"push":   ("push",   {"objects": jsonable(objects)}),
+    from .wire import FRAME_TYPE, encode
+    path, payload = {"push":   ("push",   {"objects": objects}),
                      "remove": ("remove", {"name": name}),
                      "clear":  ("push",   {"action": "clear"})}[op]
+    data = encode(payload)
+    # arrays travel as a binary frame (4x smaller than JSON lists, no parsing)
+    kw = ({"data": data, "headers": {"Content-Type": "application/json"}}
+          if isinstance(data, str) else
+          {"data": bytes(data), "headers": {"Content-Type": FRAME_TYPE}})
     try:
-        requests.post(f"{_url}/api/script/{path}", json=payload, timeout=10)
+        requests.post(f"{_url}/api/script/{path}", timeout=60, **kw)
     except requests.RequestException as e:
         print(f"[kayviz] {op} failed: {e}", file=sys.stderr)
 

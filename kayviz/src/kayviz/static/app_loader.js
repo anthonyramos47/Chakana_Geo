@@ -14,7 +14,7 @@
 
 import { Viewer }      from './viewer.js';
 import { api, wsUrl, staticUrl } from './urls.js';
-import { WSClient }    from './ws.js';
+import { WSClient, decodeFrame } from './ws.js';
 import { ScenePanel }  from './gui/scene_panel.js';
 import { EnergyPanel } from './gui/energy_panel.js';
 
@@ -101,10 +101,13 @@ try {
   const q = new URLSearchParams();
   if (meshName) q.set('mesh_name', meshName);
   if (schema.streams_scene) q.set('objects', 'false');
+  q.set('format', 'binary');           // arrays as one binary frame, as on the WebSocket
   const query = q.toString() ? `?${q}` : '';
   const res = await fetch(api(`${appName}/load${query}`), { method: 'POST' });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  const data = await res.json();
+  const data = (res.headers.get('content-type') ?? '').startsWith('application/x-kayviz-frame')
+    ? decodeFrame(await res.arrayBuffer())
+    : await res.json();
 
   viewer.applyMessage(data);
   if (data.mesh_name) {

@@ -24,11 +24,11 @@ from __future__ import annotations
 import os
 
 from fastapi import APIRouter, FastAPI, HTTPException, WebSocket
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 
 from .app import GUIApp
 from .broadcast_mixin import BroadcastMixin
-from .wire import jsonable, track_scene
+from .wire import FRAME_TYPE, encode, jsonable, track_scene
 
 _apps: dict[str, GUIApp] = {}
 _mounted: list[FastAPI] = []          # FastAPI instances that mount_all() ran on
@@ -129,12 +129,17 @@ def _make_router(name: str) -> APIRouter:
         }
 
     @router.post("/load")
-    def load(mesh_name: str = "", objects: bool = True):
+    def load(mesh_name: str = "", objects: bool = True, format: str = "json"):
         app = _lookup(name)
         if not objects and isinstance(app, BroadcastMixin):
             return {"objects": []}
         scene = app.initial_scene(mesh_name) if mesh_name else app.initial_scene()
         track_scene(scene)
+        if format == "binary":
+            # the page decodes it like a WebSocket frame (ws.js decodeFrame)
+            data = encode(scene)
+            if not isinstance(data, str):
+                return Response(memoryview(data), media_type=FRAME_TYPE)
         return jsonable(scene)
 
     @router.get("/panel.js")

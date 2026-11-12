@@ -28,12 +28,12 @@ import time
 import uuid
 from dataclasses import dataclass
 
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, HTTPException, Request, WebSocket, WebSocketDisconnect
 
 from .app import GUIApp
 from .state_schema import gui_state
 from .broadcast_mixin import BroadcastMixin
-from .wire import send
+from .wire import FRAME_TYPE, MAX_HTTP_FRAME, decode, send
 
 
 @gui_state
@@ -108,7 +108,21 @@ class ScriptApp(BroadcastMixin, GUIApp):
                     "objects": len(app._buffer)}
 
         @router.post("/push")
-        async def push(payload: dict):
+        async def push(request: Request):
+            # Attach-mode clients send a binary frame (wire.encode); JSON still works.
+            size = int(request.headers.get("content-length") or 0)
+            if size > MAX_HTTP_FRAME:
+                raise HTTPException(status_code=413, detail="push larger than 1 GB")
+            body = await request.body()
+            try:
+                if request.headers.get("content-type", "").startswith(FRAME_TYPE):
+                    payload = decode(body)
+                else:
+                    payload = json.loads(body)
+            except Exception as e:
+                raise HTTPException(status_code=400, detail=f"bad push: {e}") from None
+            if not isinstance(payload, dict):
+                raise HTTPException(status_code=400, detail="bad push: not an object")
             if payload.get("action") == "clear":
                 await app.do_clear()
                 return {"ok": True, "action": "clear"}

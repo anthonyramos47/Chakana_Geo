@@ -159,6 +159,11 @@ class Socket:
 
 _DTYPES = {"f32": np.float32, "i32": np.int32, "u32": np.uint32}
 
+# Media type of a binary frame sent over HTTP (attach-mode pushes, GUIApp /load).
+FRAME_TYPE = "application/x-kayviz-frame"
+# Largest frame a route accepts over HTTP.
+MAX_HTTP_FRAME = 1024 * 1024 * 1024
+
 
 def decode(data: str | bytes | bytearray):
     """Inverse of `encode` (for Python clients and tests): arrays come back as numpy."""
