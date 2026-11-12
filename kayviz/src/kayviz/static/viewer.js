@@ -11,7 +11,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { Materials } from './lib/MaterialLibrary.js';
 import { SceneEntry, EdgeChild, ScalarChild, VectorChild } from './SceneEntry.js';
-import { triangleEdges } from './lib/edges.js';
+import { polygonEdges } from './lib/edges.js';
 
 // Default colours of vector quantities, in the order they are handed out
 // (the first one is the former single default).
@@ -334,11 +334,11 @@ export class Viewer {
   }
 
   /** The edges of a surface mesh for the overlay (index pairs into opts.edgeVerts), or
-   *  null. A triangle mesh comes without them: they are found here on first use. */
+   *  null. Meshes come without them: the polygon sides are found here on first use. */
   _edges(e) {
     if (!e.opts.edgeIdx && e.opts.edgesFromFaces) {
       e.opts.edgeVerts = e.opts.vertices;
-      e.opts.edgeIdx   = triangleEdges(e.opts.faces);
+      e.opts.edgeIdx   = polygonEdges(e.opts.faces, e.opts.faceSize, e.opts.trisPerFace ?? null);
     }
     return e.opts.edgeVerts && e.opts.edgeIdx ? e.opts.edgeIdx : null;
   }
@@ -622,8 +622,8 @@ export class Viewer {
             // older servers: coordinates of both ends per edge
             en.opts.edgeVerts = obj.poly_edge_verts;
             en.opts.edgeIdx   = obj.poly_edge_conn;
-          } else if ((obj.face_size ?? 3) === 3) {
-            en.opts.edgesFromFaces = true;      // triangle mesh: edges found when shown
+          } else {
+            en.opts.edgesFromFaces = true;      // edges found when shown (lib/edges.js)
           }
           if (obj.show_edges && this._edges(en)) {
             this.addEdgeChild(obj.name, en.opts.edgeVerts, en.opts.edgeIdx,

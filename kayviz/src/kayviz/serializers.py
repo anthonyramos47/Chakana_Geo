@@ -188,34 +188,17 @@ def _defined_on(d, name):
 
 # ── Core geometry types ───────────────────────────────────────────────────────
 
-def _polygon_edges(F) -> np.ndarray:
-    """Unique undirected edges (m, 2) of validated polygons (see _polygons), int32."""
-    if isinstance(F, _Ragged):
-        a = F.flat
-        start = np.cumsum(F.lens) - F.lens
-        nxt = np.arange(1, len(a) + 1)
-        nxt[start + F.lens - 1] = start             # the last corner closes the polygon
-        b = a[nxt]
-    else:
-        a, b = F.ravel(), np.roll(F, -1, axis=1).ravel()
-    if not len(a):
-        return np.zeros((0, 2), np.int32)
-    # One uint64 key per edge (smaller index in the high half), sorted, duplicates
-    # dropped: ~5x faster than np.unique, with fewer temporaries.
-    key = np.minimum(a, b).astype(np.uint64)
-    key <<= np.uint64(32)
-    key |= np.maximum(a, b).astype(np.uint64)
-    key.sort()
-    key = key[np.concatenate([[True], key[1:] != key[:-1]])]
-    E = np.empty((len(key), 2), np.int32)
-    E[:, 0] = key >> np.uint64(32)
-    E[:, 1] = key & np.uint64(0xFFFFFFFF)
-    return E
+def _nonconvex(V: np.ndarray, F: np.ndarray, corners: int = 16384) -> np.ndarray:
+    """(m,) True for the polygons F (m, k) of vertices V that are not convex in their
+    plane (seen along the Newell normal). Degenerate polygons count as convex (fan).
+    In blocks of about *corners* corners: the float64 temporaries are ~20 arrays of
+    (m, k, 3), which peaked at 12x the mesh when done at once."""
+    block = max(1, corners // max(1, F.shape[1]))
+    return np.concatenate([_nonconvex_block(V[F[i:i + block]].astype(np.float64))
+                           for i in range(0, len(F), block)] or [np.zeros(0, bool)])
 
 
-def _nonconvex(Q: np.ndarray) -> np.ndarray:
-    """(m,) True for the polygons Q (m, k, 3) that are not convex in their plane
-    (seen along the Newell normal). Degenerate polygons count as convex (fan)."""
+def _nonconvex_block(Q: np.ndarray) -> np.ndarray:
     nxt = np.roll(Q, -1, axis=1)
     normal = np.cross(Q, nxt).sum(axis=1)                       # Newell: 2 x area normal
     turn = np.cross(Q - np.roll(Q, 1, axis=1), nxt - Q)          # at each vertex
@@ -272,7 +255,7 @@ def _triangulate(polys, V: np.ndarray, name: str = "") -> tuple[np.ndarray, np.n
         t = np.arange(1, k - 1)
         tris = np.stack([np.repeat(F[:, :1], k - 2, axis=1), F[:, t], F[:, t + 1]], axis=-1)
         if k > 3:
-            bad = np.nonzero(_nonconvex(V[F]))[0]
+            bad = np.nonzero(_nonconvex(V, F))[0]
             if len(bad) > max(1000, len(rows) // 5):
                 # most of them: twisted (non-planar) faces rather than non-convex
                 # panels; ear clipping in a plane means little there, and is slow
@@ -281,7 +264,7 @@ def _triangulate(polys, V: np.ndarray, name: str = "") -> tuple[np.ndarray, np.n
                               stacklevel=4)
                 bad = bad[:0]
             for r in bad:
-                tris[r] = F[r][np.array(_ear_clip(V[F[r]]))]
+                tris[r] = F[r][np.array(_ear_clip(V[F[r]].astype(np.float64)))]
         T[(start[rows][:, None] + np.arange(k - 2)).ravel()] = tris.reshape(-1, 3)
     return T, tpf
 
@@ -296,10 +279,9 @@ def surface_mesh(name: str, vertices, faces, color=(0.8, 0.8, 0.8),
     Faces may be uniform (all same length) or ragged (polygons with different
     vertex counts).  Ragged faces are fan-triangulated for rendering.
 
-    For polygon meshes the unique polygon edges (before triangulation) travel with the
-    mesh as ``poly_edges``, pairs of indices into its vertices; triangle meshes leave
-    them out (the viewer finds a triangle mesh's edges itself, only when they are
-    shown). The viewer draws them as tubes when show_edges=True or when "show edges"
+    No edges are sent: the viewer finds the sides of the original polygons (not the
+    diagonals of their triangulation) from the faces and ``tris_per_face``, only when
+    they are shown, and draws them as tubes when show_edges=True or when "show edges"
     is ticked. edge_radius=0 means 3% of the median edge length.
 
     shading: "flat" (one normal per triangle: planar polygons look planar), "smooth"
@@ -314,15 +296,11 @@ def surface_mesh(name: str, vertices, faces, color=(0.8, 0.8, 0.8),
     uniform = isinstance(F, np.ndarray)
     first_len = F.shape[1] if uniform else 3
     triangles = uniform and first_len == 3
-    # Most of the work for big triangle meshes was these edges, and they doubled the
-    # data sent: the viewer derives a triangle mesh's edges when it needs them.
-    poly_edges = None if triangles else _polygon_edges(F)
-
-    V3 = None if triangles else verts.reshape(-1, 3).astype(np.float64)
+    V3 = verts.reshape(-1, 3)              # a view; checks convert blocks to float64
     tris_per_face = None
     # Uniform triangles and convex quads go as they are (the viewer fans the quads);
     # larger, mixed or non-convex polygons are triangulated here.
-    quads_bent = uniform and first_len == 4 and face_size is None and _nonconvex(V3[F]).any()
+    quads_bent = uniform and first_len == 4 and face_size is None and _nonconvex(V3, F).any()
     if not uniform or (face_size is None and first_len > 4) or quads_bent:
         tris, tris_per_face = _triangulate(F, V3, name)
         faces_arr = _i32(tris)
@@ -344,8 +322,6 @@ def surface_mesh(name: str, vertices, faces, color=(0.8, 0.8, 0.8),
         "show":          bool(show),
         "shading":       _shading(shading, name, polygons=not uniform or first_len > 3),
     }
-    if poly_edges is not None:
-        mesh_dict["poly_edges"] = poly_edges.ravel()
     if show_edges:
         mesh_dict["edge_color"]  = _rgb(edge_color, name, "edge_color")
         mesh_dict["edge_radius"] = float(edge_radius)
