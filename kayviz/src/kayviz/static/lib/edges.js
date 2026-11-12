@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * edges.js — the edges of a surface mesh, for the edge overlay.
  *

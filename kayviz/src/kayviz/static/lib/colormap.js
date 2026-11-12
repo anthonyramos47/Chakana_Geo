@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * colormap.js — 256-entry colormap lookup tables (sampled from matplotlib 3.10):
  * viridis, plasma, inferno, magma, cividis (sequential), coolwarm, rdbu, piyg

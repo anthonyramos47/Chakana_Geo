@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * SceneEntry — owns one registered scene object and all its children.
  *
@@ -82,6 +83,7 @@ export class VectorChild extends Child {
     this.color   = [...color];
     this.length  = length;
     this.radius  = radius ?? length * 0.04;
+    this.vectortype = 'standard';   // set by viewer.addVectorQuantity
   }
 
   setColor(rgb) {
@@ -196,7 +198,9 @@ export class ScalarChild extends Child {
     this.definedOn = definedOn;
     this.cmap      = cmap;
     // finite values only: one NaN must not make the whole range NaN
-    [this.dataMin, this.dataMax] = finiteRange(values);
+    const [dataMin, dataMax] = finiteRange(values);
+    this.dataMin = dataMin;
+    this.dataMax = dataMax;
     this.vmin = this.dataMin;
     this.vmax = this.dataMax;
     this._priorMaterialColor = undefined;     // undefined = not applied
@@ -377,7 +381,8 @@ export class ScalarChild extends Child {
     const { values, dataMin, dataMax, vmin, vmax } = this;
     const range = dataMax - dataMin || 1;
     const effectiveRange = vmax - vmin || 1;
-    const css = ([r, g, b]) => `rgb(${Math.round(r*255)},${Math.round(g*255)},${Math.round(b*255)})`;
+    /** @param {ArrayLike<number>} c */
+    const css = c => `rgb(${Math.round(c[0]*255)},${Math.round(c[1]*255)},${Math.round(c[2]*255)})`;
 
     // Build bins (non-finite values are left out)
     const counts = new Array(BINS).fill(0);

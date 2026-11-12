@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * viewer.js — Three.js scene manager.
  *
@@ -296,8 +297,8 @@ export class Viewer {
   _applyBackColor(e) {
     const mat = e.mesh.material, rgb = e.opts.backColor;
     if (!rgb) { mat.userData.kvBack = null; setPatch(mat, 'back', null); return; }
-    if (mat.userData.kvBack) { mat.userData.kvBack.value.setRGB(...rgb); return; }
-    const kvBack = { value: new THREE.Color().setRGB(...rgb) };
+    if (mat.userData.kvBack) { mat.userData.kvBack.value.setRGB(rgb[0], rgb[1], rgb[2]); return; }
+    const kvBack = { value: new THREE.Color().setRGB(rgb[0], rgb[1], rgb[2]) };
     mat.userData.kvBack = kvBack;
     setPatch(mat, 'back', shader => {
       shader.uniforms.kvBackColor = kvBack;
@@ -1009,7 +1010,8 @@ export class Viewer {
     return [...(free ?? VECTOR_PALETTE[used.length % VECTOR_PALETTE.length])];
   }
 
-  _rgb([r, g, b]) { return new THREE.Color(r, g, b); }
+  /** @param {ArrayLike<number>} c  r, g, b in 0..1 */
+  _rgb(c) { return new THREE.Color(c[0], c[1], c[2]); }
 
   /** Diagonal of the bounding box of flat xyz data: the length scale of default
    *  sizes. A single point (or none) falls back to the scene, then to 1. */

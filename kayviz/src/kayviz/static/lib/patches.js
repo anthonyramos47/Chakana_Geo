@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * patches.js — several shader patches on one material.
  *

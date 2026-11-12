@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * urls.js — server URLs relative to the page, so the viewer also works behind a
  * path prefix (JupyterHub, jupyter-server-proxy, VS Code remote) and over HTTPS.

@@ -1,0 +1,21 @@
+{
+  // Type checking of the frontend (npm run typecheck). Files opt in with
+  // `// @ts-check` at the top; JSDoc comments carry the types.
+  "compilerOptions": {
+    "checkJs": false,
+    "allowJs": true,
+    "noEmit": true,
+    "strict": false,
+    "target": "ES2022",
+    "module": "ES2022",
+    "moduleResolution": "Bundler",
+    "lib": ["ES2022", "DOM"],
+    "baseUrl": ".",
+    "paths": {
+      "three": ["node_modules/@types/three"],
+      "three/addons/*": ["node_modules/@types/three/examples/jsm/*"]
+    }
+  },
+  "include": ["src/kayviz/static/**/*.js", "types/*.d.ts"],
+  "exclude": ["src/kayviz/static/vendor"]
+}

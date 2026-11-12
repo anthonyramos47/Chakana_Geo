@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * PointSprites.js — point clouds as sphere impostors.
  *
