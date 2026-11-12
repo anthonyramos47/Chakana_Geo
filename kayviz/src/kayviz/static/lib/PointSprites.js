@@ -113,7 +113,35 @@ export function sphereSprites(pts, count, color, radius) {
   mesh.userData.sphereSprites = true;
   mesh.userData.points = pts;
   setSpriteBounds(mesh, radius);
+  mesh.raycast = raycastSpheres;
   return mesh;
+}
+
+const _ray = new THREE.Ray(), _inv = new THREE.Matrix4(), _bs = new THREE.Sphere(),
+      _sphere = new THREE.Sphere(), _hit = new THREE.Vector3();
+
+/** Raycast against the spheres the sprites show (the quads face the camera only in
+ *  the shader): click-to-inspect gets the nearest point hit as instanceId. */
+function raycastSpheres(raycaster, intersects) {
+  if (!this.boundingSphere) return;
+  if (!raycaster.ray.intersectsSphere(_bs.copy(this.boundingSphere).applyMatrix4(this.matrixWorld))) return;
+  _ray.copy(raycaster.ray).applyMatrix4(_inv.copy(this.matrixWorld).invert());
+  const pts = this.userData.points, r = this.material.userData.kvRadius.value;
+  _sphere.radius = r;
+  let best = -1, bestT = Infinity;
+  for (let i = 0; i < this.count; i++) {
+    _sphere.center.set(pts[3 * i], pts[3 * i + 1], pts[3 * i + 2]);
+    if (!_ray.intersectSphere(_sphere, _hit)) continue;
+    const t = _ray.origin.distanceTo(_hit);
+    if (t < bestT) { bestT = t; best = i; }
+  }
+  if (best < 0) return;
+  _sphere.center.set(pts[3 * best], pts[3 * best + 1], pts[3 * best + 2]);
+  _ray.intersectSphere(_sphere, _hit);
+  const point = _hit.clone().applyMatrix4(this.matrixWorld);
+  const distance = raycaster.ray.origin.distanceTo(point);
+  if (distance < raycaster.near || distance > raycaster.far) return;
+  intersects.push({ distance, point, object: this, instanceId: best });
 }
 
 /** New radius: a uniform and the bounds, nothing rebuilt. */

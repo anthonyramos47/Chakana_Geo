@@ -38,3 +38,17 @@ test("render: 'sphere' keeps real sphere geometry", () => {
   assert.ok(!mesh.userData.sphereSprites);
   assert.ok(mesh.geometry.index.count / 3 > 100);
 });
+
+test('raycast hits the sprite spheres: nearest point, its id, on the sphere', () => {
+  const v = new Viewer(new THREE.Scene());
+  // two points on the same line of sight, a third off to the side
+  v.registerPointCloud('P', new Float32Array([0,0,-5, 0,0,-2, 3,0,-2]), [1, 0, 0], 0.5);
+  const mesh = v._objects.get('P').mesh;
+  const rc = new THREE.Raycaster(new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 0, -1));
+  const hits = rc.intersectObject(mesh, false);
+  assert.equal(hits.length, 1);
+  assert.equal(hits[0].instanceId, 1);                     // the nearer one
+  assert.ok(Math.abs(hits[0].point.z - (-1.5)) < 1e-9);    // front of its sphere
+  rc.set(new THREE.Vector3(0.6, 0, 0), new THREE.Vector3(0, 0, -1));
+  assert.equal(rc.intersectObject(mesh, false).length, 0); // just outside radius 0.5
+});

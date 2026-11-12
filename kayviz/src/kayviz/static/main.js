@@ -595,6 +595,14 @@ renderer.domElement.addEventListener('mousedown', e => {
   _mouseDownX = e.clientX; _mouseDownY = e.clientY;
 });
 
+/** "name: value" of the active scalar at a vertex (or point) / an edge, or ''. */
+function _scalarLine(entry, vertex, edge) {
+  const s = entry.activeScalar && entry.children.get(entry.activeScalar);
+  if (!s) return '';
+  const val = s.values[s.definedOn === 'edges' ? edge : vertex];
+  return val == null ? '' : `${_escHtml(s.key)}: ${Number(val).toPrecision(6)}<br>`;
+}
+
 renderer.domElement.addEventListener('click', e => {
   // Skip if mouse moved more than 4px (drag, not click)
   if (Math.hypot(e.clientX - _mouseDownX, e.clientY - _mouseDownY) > 4) return;
@@ -608,10 +616,10 @@ renderer.domElement.addEventListener('click', e => {
   );
   _raycaster.setFromCamera(pointer, camera);
 
-  // Collect surface_mesh and curve_network meshes
+  // Collect what can be inspected
   const candidates = [];
   for (const [, entry] of viewer.objects) {
-    if (entry.type === 'surface_mesh' || entry.type === 'curve_network') {
+    if (['surface_mesh', 'curve_network', 'point_cloud', 'vector_field'].includes(entry.type)) {
       if (entry.mesh && entry.visible) candidates.push(entry.mesh);
     }
   }
@@ -663,6 +671,18 @@ renderer.domElement.addEventListener('click', e => {
       if (val != null) html += `${_escHtml(scalar.key)}: ${Number(val).toPrecision(6)}<br>`;
     }
     html += `hit:      ${ptStr}`;
+  } else if (entry.type === 'point_cloud') {
+    const i = hit.instanceId, P = entry.opts.points;
+    const xyz = [0, 1, 2].map(c => (P[3*i + c] + o[c]).toFixed(4)).join(', ');
+    html += `type:     point_cloud<br>point:    ${i}<br>position: (${xyz})<br>`;
+    html += _scalarLine(entry, i, i);
+  } else if (entry.type === 'vector_field') {
+    const i = hit.instanceId, O = entry.opts.origins, V = entry.opts.vectors;
+    const at = (A, sh) => [0, 1, 2].map(c => (A[3*i + c] + sh[c]).toPrecision(6));
+    const len = Math.hypot(V[3*i], V[3*i + 1], V[3*i + 2]);
+    html += `type:   vector_field<br>vector: ${i}<br>`;
+    html += `origin: (${at(O, o).join(', ')})<br>value:  (${at(V, [0, 0, 0]).join(', ')})<br>`;
+    html += `length: ${len.toPrecision(6)}<br>`;
   } else {
     // curve_network
     html += `type: curve_network<br>`;
@@ -672,6 +692,7 @@ renderer.domElement.addEventListener('click', e => {
     const v1 = entry.opts.edges[edgeIdx*2 + 1];
     html += `edge:      ${edgeIdx}<br>`;
     html += `endpoints: [${v0}, ${v1}]<br>`;
+    html += _scalarLine(entry, v0, edgeIdx);
     html += `hit: ${ptStr}`;
   }
 
