@@ -229,7 +229,8 @@ class CallbackApp(BroadcastMixin, GUIApp):
         """Buffer what a callback pushed and send it to every tab of this app (not
         only the one that clicked). Encoded first: an object that cannot be encoded
         raises here and nothing is buffered."""
-        await self.push(pushed)
+        data = await encode_async({"action": "scene_update", "objects": pushed})
+        await self._publish(pushed, data)
         # clear/remove inside the callback also cleared objects pushed from the main
         # thread live (one viewer shows both); keep the script buffer in step so a
         # reload shows the same scene.
