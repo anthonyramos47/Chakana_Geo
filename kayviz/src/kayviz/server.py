@@ -240,7 +240,8 @@ class BackgroundServer:
 
     def _stop_at_exit(self) -> None:
         if self._thread.is_alive():
+            # graceful: force_exit cancelled the app's lifespan and logged an error;
+            # open tabs are waited for at most timeout_graceful_shutdown (2 s)
             self._server.should_exit = True
-            self._server.force_exit = True      # do not wait for open tabs to close
             self._thread.join(timeout=3)
 
