@@ -44,9 +44,9 @@ class PolyhedralMeshApp(kv.GUIApp):
             "n_vertices":      len(V),
             "n_faces":         len(F),
             "experiment_name": self.state.experiment_name,
-            "objects":         ser.surface_mesh("Base mesh", V, F,
-                                                color=(0.8, 0.8, 0.8),
-                                                show_edges=True),
+            "objects":         [ser.surface_mesh("Base mesh", V, F,
+                                                 color=(0.8, 0.8, 0.8),
+                                                 show_edges=True)],
         }
 
     # ── Action registration ───────────────────────────────────────────────────

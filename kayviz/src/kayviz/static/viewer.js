@@ -580,7 +580,9 @@ export class Viewer {
     const hide = new Set();
     const touched = new Set();         // objects (re)registered or given quantities
     let shown = false;
-    for (const obj of (data.objects ?? [])) {
+    // one serializer dict instead of a list of them is accepted too
+    const objects = data.objects == null ? [] : [data.objects].flat();
+    for (const obj of objects) {
       if (obj.name || obj.target) touched.add(obj.target ?? obj.name);
       if (obj.show === false && obj.name && !obj.target) hide.add(obj.name);
       // ws.clear() from inside a callback travels as a marker in the object
