@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import threading
 import traceback
 from dataclasses import make_dataclass
 from typing import Callable
@@ -90,7 +91,7 @@ class CallbackApp(BroadcastMixin, GUIApp):
         try:
             # gui() runs once here only to list its widgets: anything it pushes on
             # the way (registrations outside a button branch) is dropped, not sent.
-            with _CallbackPushCapture(self, []):
+            with _CallbackPushCapture(self, None):
                 self._callback_fn()
         except Exception:
             # Must not crash the server, but widgets after the error are missing.
@@ -228,8 +229,7 @@ class CallbackApp(BroadcastMixin, GUIApp):
         """Buffer what a callback pushed and send it to every tab of this app (not
         only the one that clicked). Encoded first: an object that cannot be encoded
         raises here and nothing is buffered."""
-        data = await encode_async({"action": "scene_update", "objects": pushed})
-        await self._publish(pushed, data)
+        await self.push(pushed)
         # clear/remove inside the callback also cleared objects pushed from the main
         # thread live (one viewer shows both); keep the script buffer in step so a
         # reload shows the same scene.
@@ -237,6 +237,14 @@ class CallbackApp(BroadcastMixin, GUIApp):
         script = _registry.get_app("script")
         if markers and script is not None and script is not self:
             script._buffer_objects(markers)
+
+    def _push_from_thread(self, objects: list[dict]) -> None:
+        """Publish objects pushed by a kv.thread after the callback itself returned."""
+        from kayviz.runtime import script as _script
+        if _script._loop is not None:
+            _script._run_on_loop(self._publish_pushed(objects))
+        else:
+            self._buffer_objects(objects)
 
     def _call_user(self, data: dict) -> tuple[list[dict], str | None]:
         """
@@ -297,17 +305,31 @@ class _CallbackPushCapture:
     them rather than sending to the ScriptApp channel.
     """
 
-    def __init__(self, app: CallbackApp, sink: list):
-        self._app  = app
+    def __init__(self, app: CallbackApp, sink: list | None):
+        self._app = app
         self._sink = sink
-        self._orig_push = None
+        self._token = None
+        self._lock = threading.Lock()
+        self._closed = False
+
+    def _push(self, objects: list[dict]) -> None:
+        with self._lock:
+            if self._sink is None:
+                return
+            if not self._closed:
+                self._sink.extend(objects)
+                return
+        self._app._push_from_thread(list(objects))
 
     def __enter__(self):
         from kayviz.runtime import script as _script
-        self._orig_push = _script._push_sink()
-        _script._set_push_sink(self._sink.extend)
+        self._token = _script._set_push_sink(self._push)
         return self
 
-    def __exit__(self, *_):
+    def __exit__(self, exc_type, *_):
+        with self._lock:
+            if exc_type is not None:
+                self._sink = None
+            self._closed = True
         from kayviz.runtime import script as _script
-        _script._set_push_sink(self._orig_push)
+        _script._reset_push_sink(self._token)
