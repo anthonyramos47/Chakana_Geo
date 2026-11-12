@@ -192,3 +192,23 @@ Each check passes or fails; most of them run in CI.
 
 Every phase ends with pytest, `npm test`, the evaluator compared against the
 baseline, and an update of the docs (`docs/kayviz/` and `CLAUDE.md`).
+
+---
+
+## Status (2026-11-12, branch `debugging`)
+
+| item | result | commit |
+|---|---|---|
+| P0-A evaluator (speed, memory, report, compare) | done | `a746510` |
+| P0-B browser suite (delivery, frames, toggles, tab memory) | done | `5731800` |
+| P0-C robustness suite (fuzz, protocol, lifecycle, leaks) | done; found an unbounded send buffer for a stuck tab, fixed | `fcf3009`, `18478b0` |
+| P1-A studio buffers | done, pixel ratio 1 by default (owner's choice) | `2829abe` |
+| P1-B Python memory | done: no edges sent, single-buffer encoder, blocked convexity check (merged-12M peak 1686 → 440 MB, kept 1.67x → 1.0x) | `4015388`, `905d94b`, `401aa51` |
+| P1-C studio toggle freeze | investigated, not changed: ~60 ms, 14 of 20 new programs are shadow-map/GTAO internals compileAsync cannot reach | — |
+| P1-D tab CPU copies | measured, no redundant copies; the excess was curve tubes (→ P3-B) | — |
+| P2-A / P2-B binary attach pushes and /load | done | `b34caed` |
+| P2-C pushes from threads (kv.thread) | done | `51a7082` |
+| P3-A point sprites | done: 1M points 113 → 20 ms per frame | `5f5998a` |
+| P3-B instanced tubes | done: 200k edges 55 → 12 MB, inspect gets edge ids | `98d4f54` |
+| P3-C float64 recentring | done (kv.set_origin, automatic for far data) | `28e4e49` |
+| Phase 4 features, Phase 5 engineering | open; Phase 4 order is the owner's choice | — |
