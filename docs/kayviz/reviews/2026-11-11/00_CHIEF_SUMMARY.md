@@ -279,3 +279,35 @@ Closes K41, K42, K43, K34, K35, K36, K37, K30, K11 (non-convex part), K21.
 ## Not confirmed by me
 
 These were reported by the specialists and not re-checked: the actual message reordering in K15, the 10 s stall in K16, the K20 screenshot behaviour, the stale sockets in K19, the K36 and K37 measurements, and the K11 triangulation numbers. The code patterns behind K15 and K20 match the descriptions.
+
+---
+
+## Status after implementation (branch `debugging`, 2026-11-12)
+
+| phase | closes | commit |
+|---|---|---|
+| A — cheap blockers | K38, K26, K40, K23, K6, parts of K14/K3/K20 | `bd5e6c3` |
+| B — scalar pipeline | K1, K2, K17 (per object) | `c9a1abc` |
+| C — validation, one consistent buffer | K5, K4, degenerate faces | `52c5c86` |
+| D — concurrency | K12–K16, BE14 | `2bd4dd6` |
+| E — security | K22, screenshot cap | `dbee099` |
+| F — GUI state and panel | K7, K31, K32, K33, energy panel | `9f0ab05` |
+| G — research-grade viewing | K24, K25, K9, K8, K27 (core), z up | `24028a9` |
+| H — packaging and lifecycle | K39, K20, K18, K19 | `9156f7b` |
+| I — hygiene | rename webscope → runtime, K41 (part), K11 | `5662c2f`, `29a6b75` |
+| leftovers | B8/B10, U17, U20, FE15/17/18/19, part of K34 | `c1c778c` |
+
+Tests: 144 Python (pytest) + 15 frontend (`npm test`, node + three 0.165).
+
+Open, by choice (not needed for the release, or a decision of the owner):
+- Geometry features: float64 recentring (GEO16), order-independent transparency (GEO18),
+  backface colouring (GEO19), scalars on points/curves (GEO20), screen-space wireframe
+  (GEO22), isolines, OBJ/PLY export, parameterization checker, picking of points/vectors
+  (FE25), exact-colour mode (owner: not a priority).
+- Performance for very large scenes: instanced tubes, point impostors.
+- Attach mode (`python -m kayviz` shared server) still sends JSON lists (BE13); a GUIApp's
+  `/load` returns its scene as JSON (BE12).
+- Engineering: split `runtime/script.py` (SE18), `// @ts-check` in CI, layout without fixed
+  pixel offsets (FE29) and the rest of the accessibility list (FE28), compileAsync on the
+  studio toggle (FE16), pushes from threads a callback starts itself (SE22: documented
+  behaviour, thread-local sink).
