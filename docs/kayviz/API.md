@@ -145,6 +145,13 @@ while one is running is refused with an error message.
 A callback app with a custom panel:
 `kv.register_app(kv.CallbackApp(fn, app_name=..., on_load=...), panel_js="panel.js")`.
 
+**Threads inside callbacks.** Geometry pushed inside a callback is captured into the
+callback app's buffer through a `contextvars.ContextVar` push sink. To start a helper
+thread whose pushes go where the caller's pushes go, use
+`kv.thread(fn, *args, **kwargs) -> threading.Thread` (started, daemon; runs `fn` in a
+copy of the current context). A plain `threading.Thread` starts with an empty context, so
+pushes from it go to the script channel.
+
 ---
 
 ## `GUIApp`
