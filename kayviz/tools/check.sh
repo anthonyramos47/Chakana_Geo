@@ -11,6 +11,9 @@ KV="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$(conda info --base)/etc/profile.d/conda.sh"
 conda activate Lproj
 export PYTHONPATH="$KV/src${PYTHONPATH:+:$PYTHONPATH}"
+# own test ports per checkout (tests/test_runtime.py), 300 apart from 20000 on
+: "${KAYVIZ_TEST_PORT_BASE:=$(( 20000 + $(printf %s "$KV" | cksum | cut -d" " -f1) % 40 * 300 ))}"
+export KAYVIZ_TEST_PORT_BASE
 
 what="${1:-all}"; shift || true
 case "$what" in

@@ -14,10 +14,14 @@ import textwrap
 
 import pytest
 
+# Ports of this run; tools/check.sh gives each checkout its own range, so test runs
+# in parallel worktrees do not attach to (or kill) each other's servers.
+BASE = int(os.environ.get("KAYVIZ_TEST_PORT_BASE", "18700"))
+
 
 def _run(body: str, timeout: float = 60.0) -> dict:
     code = textwrap.dedent('''
-        import json, threading, time
+        import json, os, threading, time
         import numpy as np
         import requests
         from websockets.sync.client import connect
@@ -35,7 +39,7 @@ def _run(body: str, timeout: float = 60.0) -> dict:
 
         out = {}
     ''') + textwrap.dedent(body) + "\nprint('RESULT' + json.dumps(out))\n"
-    env = dict(os.environ, KAYVIZ_NO_BROWSER="1", KAYVIZ_PORT="18700")
+    env = dict(os.environ, KAYVIZ_NO_BROWSER="1", KAYVIZ_PORT=str(BASE))
     env.pop("KAYVIZ_URL", None)
     env.pop("WEBSCOPE_URL", None)
     proc = subprocess.run([sys.executable, "-c", code], capture_output=True,
@@ -140,7 +144,7 @@ def test_show_blocks_until_tab_closes():
 
 
 def test_attach_to_shared_viewer():
-    port = "18750"
+    port = str(BASE + 50)
     server = subprocess.Popen([sys.executable, "-m", "kayviz", "--port", port],
                               stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     try:
@@ -170,7 +174,7 @@ def test_attach_to_shared_viewer():
 
 
 def test_gui_script_gets_own_viewer_even_if_shared_one_runs():
-    port = "18760"
+    port = str(BASE + 60)
     server = subprocess.Popen([sys.executable, "-m", "kayviz", "--port", port],
                               stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     try:
@@ -313,7 +317,7 @@ def test_free_port_survives_time_wait_but_skips_live_server():
     # running server keeps its port to itself.
     import socket
     from kayviz.server import find_free_port
-    port = 18950
+    port = BASE + 250
     live = socket.socket()
     live.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     live.bind(("127.0.0.1", port))
@@ -489,7 +493,7 @@ def test_restart_in_the_same_process():
             recv_until(ws, lambda m: m.get("action") == "scene_update")
             # binds the app's asyncio primitives to this server's loop
             requests.get(kv.url() + "/api/script/wait", params={"timeout": 0.3})
-        kv.kill_servers(ports=range(18700, 18710))
+        kv.kill_servers(ports=range(int(os.environ["KAYVIZ_PORT"]), int(os.environ["KAYVIZ_PORT"]) + 10))
         kv.register_point_cloud("Q", np.zeros((1, 3)))          # starts a new server
         base = kv.url()
         with connect(base.replace("http", "ws") + "/api/script/ws") as ws:
@@ -622,7 +626,7 @@ def test_other_web_pages_cannot_reach_the_viewer():
 
 def test_network_serving_needs_an_explicit_flag():
     proc = subprocess.run([sys.executable, "-m", "kayviz", "--host", "0.0.0.0",
-                           "--port", "18799"], capture_output=True, text=True, timeout=30)
+                           "--port", str(BASE + 99)], capture_output=True, text=True, timeout=30)
     assert proc.returncode != 0 and "--allow-network" in proc.stderr
 
 

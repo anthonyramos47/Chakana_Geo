@@ -40,8 +40,12 @@ existing test to make it pass; if one is wrong, explain why in the report.
 There is no browser available to you. Code that needs a real tab (WebGL) must
 also have a part that is tested without one (pure functions in node tests, or a
 Python websocket client standing in for the tab, as in `kayviz/tests/test_runtime.py`).
-`KAYVIZ_NO_BROWSER=1` stops kayviz from opening a tab. Use ports ≥ 18700 in
-tests (`KAYVIZ_PORT`), never 8000.
+`KAYVIZ_NO_BROWSER=1` stops kayviz from opening a tab. Other agents run tests
+at the same time in other worktrees: never use fixed ports. `check.sh` exports
+`KAYVIZ_TEST_PORT_BASE` (a 300-port range for this checkout); new tests use
+`BASE + 100` … `BASE + 240` (see `BASE` in `tests/test_runtime.py`; offsets 0–99
+and 250 are taken). Never use port 8000, and never call `kv.kill_servers()`
+without a `ports=` range inside your own range.
 
 ### 0.3 Commits
 - Small commits, each one passing `tools/check.sh`.
