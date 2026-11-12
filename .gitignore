@@ -182,3 +182,7 @@ examples/*/out/
 
 # kayviz frontend tests (npm install in kayviz/)
 node_modules/
+
+# kayviz evaluator outputs
+evaluate-*.json
+evaluate-*.md
