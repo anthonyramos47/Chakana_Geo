@@ -91,3 +91,26 @@ test('one bad object does not lose the rest of the message', () => {
   assert.ok(v.objects.has('Good'));
   assert.equal(v.errors.length, 1);
 });
+
+test('isolines: a scalar attribute and a shader patch, removed with the scalar', async () => {
+  const { Viewer } = await import('../../src/kayviz/static/viewer.js');
+  const THREE = await import('three');
+  const v = new Viewer(new THREE.Scene());
+  v.applyMessage({ objects: [{ type: 'surface_mesh', name: 'M', face_size: 3,
+    vertices: new Float32Array([0,0,0, 1,0,0, 0,1,0]), faces: new Int32Array([0,1,2]) },
+    { type: 'scalar_quantity', target: 'M', name: 'h', defined_on: 'vertices',
+      values: new Float32Array([0, 5, 10]), isolines: { spacing: null, width: 2 } }] });
+  const m = v._objects.get('M').mesh;
+  assert.deepEqual(Array.from(m.geometry.getAttribute('kvScalar').array), [0, 5, 10]);
+  const shader = { uniforms: {}, vertexShader: '#include <begin_vertex>',
+                   fragmentShader: 'void main() {\n#include <color_fragment>\n}' };
+  m.material.onBeforeCompile(shader);
+  assert.equal(shader.uniforms.kvIsoSpacing.value, 1);       // a tenth of 0..10
+  assert.equal(shader.uniforms.kvIsoWidth.value, 2);
+  assert.match(shader.fragmentShader, /fwidth\(kvF\)/);
+  v.setScalarRange('M', 'h', 0, 20);
+  assert.equal(shader.uniforms.kvIsoSpacing.value, 2);       // follows the range
+  v.setActiveScalar('M', null);
+  assert.equal(m.geometry.getAttribute('kvScalar'), undefined);
+  assert.ok(!m.material.userData.kvPatches?.isolines);
+});

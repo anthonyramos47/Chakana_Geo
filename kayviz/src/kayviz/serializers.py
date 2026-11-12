@@ -472,7 +472,9 @@ def edge_child(target_name: str, vertices, edges,
 
 
 def scalar_quantity(target_name: str, field_name: str, values, defined_on="vertices",
-                    show: bool | None = None, cmap: str = "viridis", vminmax=None):
+                    show: bool | None = None, cmap: str = "viridis", vminmax=None,
+                    isolines: bool = False, iso_spacing: float | None = None,
+                    iso_width: float = 1.0):
     """Mirrors structure.add_scalar_quantity().
 
     cmap: one of COLORMAPS (diverging coolwarm / rdbu / piyg for signed data, cyclic
@@ -482,6 +484,9 @@ def scalar_quantity(target_name: str, field_name: str, values, defined_on="verti
     show: None (default) follows the parent - hidden while the parent is hidden; True also
     shows the parent; False adds the quantity without displaying it.
     For a scalar, displaying it means colouring the mesh with it.
+
+    isolines (surface meshes, vertex scalars): dark lines where the value crosses a
+    multiple of iso_spacing (default a tenth of the colour range), iso_width pixels wide.
     """
     vals = _array(values, f"{target_name}::{field_name}", "values")
     if vals.ndim != 1:
@@ -505,6 +510,15 @@ def scalar_quantity(target_name: str, field_name: str, values, defined_on="verti
         d["vminmax"] = [lo, hi]
     if show is not None:
         d["show"] = bool(show)
+    if isolines:
+        if d["defined_on"] != "vertices":
+            raise ValueError(f"{q}: isolines need a vertex scalar (values vary across a face)")
+        if iso_spacing is not None and not float(iso_spacing) > 0:
+            raise ValueError(f"{q}: iso_spacing must be positive, got {iso_spacing}")
+        if not float(iso_width) > 0:
+            raise ValueError(f"{q}: iso_width must be positive, got {iso_width}")
+        d["isolines"] = {"spacing": None if iso_spacing is None else float(iso_spacing),
+                         "width": float(iso_width)}
     return d
 
 

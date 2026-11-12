@@ -250,3 +250,16 @@ def test_point_render_option():
     assert ser.point_cloud("P", np.zeros((2, 3)), point_render="sphere")["render"] == "sphere"
     with pytest.raises(ValueError, match="P: point_render"):
         ser.point_cloud("P", np.zeros((2, 3)), point_render="cube")
+
+
+def test_isolines_option():
+    import numpy as np
+    from kayviz import serializers as ser
+    d = ser.scalar_quantity("M", "h", np.arange(4.0), isolines=True, iso_spacing=0.5, iso_width=2)
+    assert d["isolines"] == {"spacing": 0.5, "width": 2.0}
+    assert ser.scalar_quantity("M", "h", np.arange(4.0), isolines=True)["isolines"]["spacing"] is None
+    assert "isolines" not in ser.scalar_quantity("M", "h", np.arange(4.0))
+    with pytest.raises(ValueError, match="vertex scalar"):
+        ser.scalar_quantity("M", "h", np.arange(2.0), defined_on="faces", isolines=True)
+    with pytest.raises(ValueError, match="iso_spacing"):
+        ser.scalar_quantity("M", "h", np.arange(4.0), isolines=True, iso_spacing=0)

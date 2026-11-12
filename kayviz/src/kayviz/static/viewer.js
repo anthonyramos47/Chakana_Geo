@@ -13,6 +13,7 @@ import { Materials } from './lib/MaterialLibrary.js';
 import { SceneEntry, EdgeChild, ScalarChild, VectorChild } from './SceneEntry.js';
 import { polygonEdges } from './lib/edges.js';
 import { sphereSprites, setSpriteRadius } from './lib/PointSprites.js';
+import { setPatch } from './lib/patches.js';
 
 // Default colours of vector quantities, in the order they are handed out
 // (the first one is the former single default).
@@ -253,26 +254,16 @@ export class Viewer {
   // material (Shader dropdown, per-mesh material) gets it again.
   _applyBackColor(e) {
     const mat = e.mesh.material, rgb = e.opts.backColor;
-    if (!rgb) {
-      if (mat.userData.kvBack) {
-        mat.userData.kvBack = null;
-        mat.onBeforeCompile = () => {};
-        mat.customProgramCacheKey = () => '';
-        mat.needsUpdate = true;
-      }
-      return;
-    }
+    if (!rgb) { mat.userData.kvBack = null; setPatch(mat, 'back', null); return; }
     if (mat.userData.kvBack) { mat.userData.kvBack.value.setRGB(...rgb); return; }
     const kvBack = { value: new THREE.Color().setRGB(...rgb) };
     mat.userData.kvBack = kvBack;
-    mat.onBeforeCompile = shader => {
+    setPatch(mat, 'back', shader => {
       shader.uniforms.kvBackColor = kvBack;
       shader.fragmentShader = 'uniform vec3 kvBackColor;\n' + shader.fragmentShader.replace(
         '#include <color_fragment>',
         '#include <color_fragment>\nif (!gl_FrontFacing) diffuseColor.rgb = kvBackColor;');
-    };
-    mat.customProgramCacheKey = () => 'kayviz-back-color';
-    mat.needsUpdate = true;
+    });
   }
 
   setGlobalMaterial(matName) {
@@ -393,12 +384,13 @@ export class Viewer {
   // ── Scalar quantity ───────────────────────────────────────────────────────
 
   addScalarQuantity(parentName, key, values, definedOn = 'vertices',
-                    { cmap = 'viridis', vminmax = null } = {}) {
+                    { cmap = 'viridis', vminmax = null, isolines = null } = {}) {
     const e = this._objects.get(parentName);
     if (!e || !['surface_mesh', 'point_cloud', 'curve_network'].includes(e.type)) return;
     const wasActive = (e.activeScalar === key);
     if (e.children.has(key)) e.removeChild(key, this.scene, e.mesh);
-    const child = new ScalarChild({ key, values, definedOn, cmap });
+    const child = new ScalarChild({ key, values, definedOn, cmap,
+                                    isolines: e.type === 'surface_mesh' ? isolines : null });
     if (vminmax) [child.vmin, child.vmax] = vminmax;
     e.addChild(child);
     // Auto-activate if no scalar active, or if replacing the currently active one
@@ -699,7 +691,8 @@ export class Viewer {
       case 'scalar_quantity': {
         this.addScalarQuantity(obj.target, obj.name, obj.values,
                                obj.defined_on ?? 'vertices',
-                               { cmap: obj.cmap ?? 'viridis', vminmax: obj.vminmax ?? null });
+                               { cmap: obj.cmap ?? 'viridis', vminmax: obj.vminmax ?? null,
+                                 isolines: obj.isolines ?? null });
         const parent = this._objects.get(obj.target);
         if (!parent || !parent.children.has(obj.name)) break;
         if (obj.show === true) {

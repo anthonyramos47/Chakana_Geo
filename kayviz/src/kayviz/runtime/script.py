@@ -243,7 +243,8 @@ def register_point_cloud(name: str, points,
 
 def add_scalar_quantity(target: str, field_name: str, values,
                         defined_on: str = "vertices", show: bool = None,
-                        cmap: str = "viridis", vminmax=None) -> None:
+                        cmap: str = "viridis", vminmax=None, isolines: bool = False,
+                        iso_spacing: float = None, iso_width: float = 1.0) -> None:
     """Mirrors structure.add_scalar_quantity().
 
     Targets: surface meshes (defined_on "vertices" or "faces"), point clouds
@@ -255,9 +256,12 @@ def add_scalar_quantity(target: str, field_name: str, values,
     cmap: viridis, plasma, inferno, magma, cividis, coolwarm, rdbu, piyg (diverging: signed
     data), twilight (cyclic: angles), turbo, gray, blues.
     vminmax: (vmin, vmax) colour range; default the range of the finite values.
+    isolines: on a surface mesh's vertex scalar, dark lines where the value crosses a
+    multiple of iso_spacing (default a tenth of the colour range), iso_width pixels wide.
     """
     d = ser.scalar_quantity(target, field_name, values, defined_on=defined_on, show=show,
-                            cmap=cmap, vminmax=vminmax)
+                            cmap=cmap, vminmax=vminmax, isolines=isolines,
+                            iso_spacing=iso_spacing, iso_width=iso_width)
     _check_quantity("add_scalar_quantity", target, len(d["values"]), defined_on,
                     ("surface_mesh", "point_cloud", "curve_network"))
     _push(d)

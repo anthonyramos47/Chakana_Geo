@@ -18,6 +18,7 @@
 
 import * as THREE from 'three';
 import { lut, sample, finiteRange, NAN_COLOR } from './lib/colormap.js';
+import { setPatch } from './lib/patches.js';
 
 // ── Base child class ──────────────────────────────────────────────────────────
 
@@ -115,8 +116,11 @@ function restoreIndexed(parentMesh, opts) {
 }
 
 export class ScalarChild extends Child {
-  constructor({ key, values, definedOn = 'vertices', cmap = 'viridis' }) {
+  constructor({ key, values, definedOn = 'vertices', cmap = 'viridis', isolines = null }) {
     super(key, 'scalar');
+    // { spacing: number | null (a tenth of the colour range), width: pixels } or null
+    this.isolines  = isolines;
+    this._iso      = null;                     // shader uniforms while applied
     this.mesh      = null;   // scalar has no mesh
     this.values    = values;
     this.definedOn = definedOn;
@@ -160,6 +164,42 @@ export class ScalarChild extends Child {
     this._writeColors(parentMesh, opts);
     parentMesh.material.vertexColors = true;
     parentMesh.material.needsUpdate  = true;
+    if (this.isolines && this.definedOn === 'vertices') this._applyIsolines(parentMesh);
+  }
+
+  /** Lines where the scalar crosses multiples of the spacing: the raw value is a
+   *  vertex attribute, interpolated per pixel; fwidth keeps the width in pixels. */
+  _applyIsolines(parentMesh) {
+    const geo = parentMesh.geometry, n = geo.attributes.position.count;
+    const vals = new Float32Array(n);
+    for (let i = 0; i < n; i++) {
+      const v = i < this.values.length ? this.values[i] : NaN;
+      vals[i] = Number.isFinite(v) ? v : 3e38;           // no line through NaN
+    }
+    geo.setAttribute('kvScalar', new THREE.BufferAttribute(vals, 1));
+    this._iso = { spacing: { value: this._isoSpacing() },
+                  width:   { value: this.isolines.width ?? 1.0 } };
+    const iso = this._iso;
+    setPatch(parentMesh.material, 'isolines', shader => {
+      shader.uniforms.kvIsoSpacing = iso.spacing;
+      shader.uniforms.kvIsoWidth = iso.width;
+      shader.vertexShader = 'attribute float kvScalar;\nvarying float vKvScalar;\n' +
+        shader.vertexShader.replace('#include <begin_vertex>',
+                                    '#include <begin_vertex>\nvKvScalar = kvScalar;');
+      shader.fragmentShader =
+        'uniform float kvIsoSpacing;\nuniform float kvIsoWidth;\nvarying float vKvScalar;\n' +
+        shader.fragmentShader.replace('#include <color_fragment>', `#include <color_fragment>
+{
+  float kvF = vKvScalar / kvIsoSpacing;
+  float kvD = abs(fract(kvF - 0.5) - 0.5) / max(fwidth(kvF), 1e-6);
+  float kvLine = 1.0 - smoothstep(0.5 * kvIsoWidth - 0.5, 0.5 * kvIsoWidth + 0.5, kvD);
+  diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.05), kvLine);
+}`);
+    });
+  }
+
+  _isoSpacing() {
+    return this.isolines?.spacing || ((this.vmax - this.vmin) / 10 || 1);
   }
 
   /** New vmin/vmax: rewrites the colours in place (no new GPU buffer). */
@@ -167,6 +207,7 @@ export class ScalarChild extends Child {
     this.vmin = vmin;
     this.vmax = vmax;
     this._writeColors(parentMesh, parentEntry.opts);
+    if (this._iso) this._iso.spacing.value = this._isoSpacing();   // automatic spacing follows
   }
 
   _writeColors(parentMesh, opts) {
@@ -242,6 +283,11 @@ export class ScalarChild extends Child {
       return;
     }
     parentMesh.geometry.deleteAttribute('color');
+    if (this._iso) {
+      parentMesh.geometry.deleteAttribute('kvScalar');
+      setPatch(parentMesh.material, 'isolines', null);
+      this._iso = null;
+    }
     if (this.definedOn === 'faces') restoreIndexed(parentMesh, parentEntry.opts);
     if (this._priorMaterialColor) parentMesh.material.color?.setRGB(...this._priorMaterialColor);
     parentMesh.material.vertexColors = false;

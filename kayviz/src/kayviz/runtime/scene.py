@@ -83,11 +83,14 @@ class Scene:
 
     def add_scalar_quantity(self, target_name: str, field_name: str,
                             values, defined_on: str = "vertices", show: bool = None,
-                            cmap: str = "viridis", vminmax=None):
-        """Mirrors structure.add_scalar_quantity(). show: see kayviz.add_scalar_quantity."""
+                            cmap: str = "viridis", vminmax=None, isolines: bool = False,
+                            iso_spacing: float = None, iso_width: float = 1.0):
+        """Mirrors structure.add_scalar_quantity(). show, isolines: see
+        kayviz.add_scalar_quantity."""
         self._objects.append(
             ser.scalar_quantity(target_name, field_name, values, defined_on=defined_on,
-                                show=show, cmap=cmap, vminmax=vminmax)
+                                show=show, cmap=cmap, vminmax=vminmax, isolines=isolines,
+                                iso_spacing=iso_spacing, iso_width=iso_width)
         )
         return self
 
