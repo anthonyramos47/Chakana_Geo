@@ -9,11 +9,19 @@ Run from the command line:
     python -m kayviz.evaluate --compare baseline.json
 """
 
-from .scenes import SCENES, SMALL_SCENES, LARGE_SCENES, resolve_scenes
+from .compare import DEFAULT_TOLERANCES, compare_files, compare_reports
+from .report import build_report, format_markdown, write_report
+from .scenes import LARGE_SCENES, SCENES, SMALL_SCENES, resolve_scenes
 
 __all__ = [
     "SCENES",
     "SMALL_SCENES",
     "LARGE_SCENES",
     "resolve_scenes",
+    "build_report",
+    "format_markdown",
+    "write_report",
+    "DEFAULT_TOLERANCES",
+    "compare_reports",
+    "compare_files",
 ]
