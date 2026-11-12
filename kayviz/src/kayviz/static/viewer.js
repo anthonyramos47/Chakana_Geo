@@ -230,6 +230,7 @@ export class Viewer {
     const e = this._objects.get(name);
     if (!e || e.type !== 'surface_mesh') return;
     this.matLib.applyTo(e.mesh, matName, e.color, e.opacity);
+    this._applyBackColor(e);
     e.opts.material = matName;
     e.opts.pinned   = true;          // a per-mesh choice survives the global Shader dropdown
     this._reapplyScalar(e);
@@ -238,6 +239,41 @@ export class Viewer {
   }
 
   /** Switch every surface mesh (and the ones registered later) to the shader `matName`. */
+  /** Colour of the back side of a surface mesh's faces, or null for the front colour. */
+  setBackColor(name, rgb) {
+    const e = this._objects.get(name);
+    if (!e || e.type !== 'surface_mesh') return;
+    e.opts.backColor = rgb ? [...rgb] : null;
+    this._applyBackColor(e);
+    window.__invalidate?.();
+  }
+
+  // The back colour lives in the material's shader (gl_FrontFacing), so a swapped
+  // material (Shader dropdown, per-mesh material) gets it again.
+  _applyBackColor(e) {
+    const mat = e.mesh.material, rgb = e.opts.backColor;
+    if (!rgb) {
+      if (mat.userData.kvBack) {
+        mat.userData.kvBack = null;
+        mat.onBeforeCompile = () => {};
+        mat.customProgramCacheKey = () => '';
+        mat.needsUpdate = true;
+      }
+      return;
+    }
+    if (mat.userData.kvBack) { mat.userData.kvBack.value.setRGB(...rgb); return; }
+    const kvBack = { value: new THREE.Color().setRGB(...rgb) };
+    mat.userData.kvBack = kvBack;
+    mat.onBeforeCompile = shader => {
+      shader.uniforms.kvBackColor = kvBack;
+      shader.fragmentShader = 'uniform vec3 kvBackColor;\n' + shader.fragmentShader.replace(
+        '#include <color_fragment>',
+        '#include <color_fragment>\nif (!gl_FrontFacing) diffuseColor.rgb = kvBackColor;');
+    };
+    mat.customProgramCacheKey = () => 'kayviz-back-color';
+    mat.needsUpdate = true;
+  }
+
   setGlobalMaterial(matName) {
     if (!this.matLib.has(matName)) return;
     this.material = matName;
@@ -245,6 +281,7 @@ export class Viewer {
     for (const [name, e] of this._objects) {
       if (e.type !== 'surface_mesh' || e.opts.pinned) continue;
       this.matLib.applyTo(e.mesh, matName, e.color, e.opacity);
+      this._applyBackColor(e);
       e.opts.material = matName;
       this._reapplyScalar(e);
       e.mesh.material.needsUpdate = true;
@@ -625,6 +662,7 @@ export class Viewer {
                            showEdges: !!obj.show_edges, flat: obj.shading === 'flat' };
           this.setFlat(obj.name, obj.shading === 'flat');
           if (obj.tris_per_face) en.opts.trisPerFace = obj.tris_per_face;
+          if (obj.back_color) this.setBackColor(obj.name, obj.back_color);
           if (obj.poly_edges) {
             // index pairs into the mesh's own vertices
             en.opts.edgeVerts = en.opts.vertices;
