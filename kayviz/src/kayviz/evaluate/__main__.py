@@ -22,7 +22,7 @@ from . import report as _report
 from . import scenes as _scenes
 from . import speed as _speed
 
-AVAILABLE_SUITES = ("speed", "memory", "browser")
+AVAILABLE_SUITES = ("speed", "memory", "browser", "robustness")
 DEFAULT_SUITES = ("speed", "memory")         # browser needs a tab: on request
 
 
@@ -49,7 +49,8 @@ def run(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--suite",
         default=None,
-        help="comma-separated suites: speed, memory, browser (default: speed,memory)",
+        help="comma-separated suites: speed, memory, browser, robustness "
+             "(default: speed,memory)",
     )
     parser.add_argument(
         "--scenes",
@@ -94,6 +95,9 @@ def run(argv: list[str] | None = None) -> int:
             results.extend(_speed.run_suite(scene_list, reps=reps))
         elif suite == "memory":
             results.extend(_memory.run_suite(scene_list))
+        elif suite == "robustness":
+            from . import robustness as _robustness
+            results.extend(_robustness.run_suite())
         elif suite == "browser":
             from . import browser as _browser
             results.extend(_browser.run_suite(scene_list, frames=args.frames,

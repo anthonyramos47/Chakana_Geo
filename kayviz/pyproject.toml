@@ -44,6 +44,9 @@ kayviz = ["static/*", "static/**/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# long robustness checks: run them with `pytest -m slow` (tools/check.sh py -m slow)
+markers = ["slow: long robustness checks, not in the default run"]
+addopts = "-m 'not slow'"
 
 [tool.setuptools.dynamic]
 version = { attr = "kayviz.__version__" }

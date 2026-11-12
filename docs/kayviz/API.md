@@ -274,7 +274,12 @@ server starts).
 `--quick`). Suites: `speed` and `memory` (Python side, the default) and `browser` (starts
 its own viewer, opens it, and per scene times the delivery until the tab has drawn it,
 frames, toggles and the tab's memory; `--no-open` prints the URL instead, `--frames N`;
-keep the tab visible). `--compare baseline.json` exits 1 when a metric got worse than its
+keep the tab visible), and `robustness` (each check in a fresh process: 2,000 random broken
+`register_*`/`add_*` calls must succeed or raise `ValueError` naming the object; garbage and
+oversized WebSocket messages; message bursts, two tabs, a stuck tab dropped and recovering, a
+tab closing mid-callback, a server restart, a cell re-run 50 times; push/clear 200 times
+without growing memory). NaN and infinite coordinates are accepted with a warning. The
+same checks run under pytest; the long ones with `pytest -m slow`. `--compare baseline.json` exits 1 when a metric got worse than its
 tolerance (time +25 %, memory +15 %, bytes +5 %; changes under 2 ms / 2 MB never count).
 
 **Access.** The viewer answers only this machine's programs and its own page: other web
