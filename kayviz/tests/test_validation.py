@@ -1,5 +1,7 @@
 """Input checks of the serializers: wrong input raises ValueError naming the object."""
 
+import json
+
 import numpy as np
 import pytest
 
@@ -114,3 +116,40 @@ def test_non_convex_quads_leave_the_quad_fast_path():
     assert d["face_size"] == 3 and (_areas(dart, d) > 0).all()
     square = np.array([[0, 0, 0], [1, 0, 0], [1, 1, 0], [0, 1, 0]], float)
     assert ser.surface_mesh("S", square, [[0, 1, 2, 3]])["face_size"] == 4
+
+
+def test_scalars_on_points_and_curves_are_checked():
+    import os, subprocess, sys, textwrap
+    code = textwrap.dedent('''
+        import json, numpy as np, kayviz as kv
+        kv.init()
+        kv.register_point_cloud("P", np.zeros((4, 3)))
+        kv.register_curve_network("C", np.zeros((5, 3)), [[0, 1], [1, 2], [3, 4]])
+        kv.register_surface_mesh("M", np.eye(3), [[0, 1, 2]])
+        out = {}
+        for label, call in [
+            ("points", lambda: kv.add_scalar_quantity("P", "s", np.arange(4.0))),
+            ("curve_vertices", lambda: kv.add_scalar_quantity("C", "s", np.arange(5.0))),
+            ("curve_edges", lambda: kv.add_scalar_quantity("C", "e", np.arange(3.0), defined_on="edges")),
+            ("points_wrong_count", lambda: kv.add_scalar_quantity("P", "s", np.arange(3.0))),
+            ("edges_wrong_count", lambda: kv.add_scalar_quantity("C", "e", np.arange(5.0), defined_on="edges")),
+            ("faces_on_curve", lambda: kv.add_scalar_quantity("C", "f", np.arange(3.0), defined_on="faces")),
+            ("edges_on_mesh", lambda: kv.add_scalar_quantity("M", "e", np.arange(3.0), defined_on="edges")),
+        ]:
+            try:
+                call(); out[label] = "ok"
+            except ValueError as e:
+                out[label] = str(e)
+        print("RESULT" + json.dumps(out))
+    ''')
+    env = dict(os.environ, KAYVIZ_NO_BROWSER="1",
+               KAYVIZ_PORT=str(int(os.environ.get("KAYVIZ_TEST_PORT_BASE", "18700")) + 125))
+    p = subprocess.run([sys.executable, "-c", code], env=env, capture_output=True, text=True,
+                       timeout=60)
+    assert p.returncode == 0, p.stderr
+    out = json.loads(p.stdout.split("RESULT")[1])
+    assert out["points"] == out["curve_vertices"] == out["curve_edges"] == "ok"
+    assert "has 4 vertices" in out["points_wrong_count"]
+    assert "has 3 edges" in out["edges_wrong_count"]
+    assert "needs a surface_mesh" in out["faces_on_curve"]
+    assert "needs a curve_network" in out["edges_on_mesh"]

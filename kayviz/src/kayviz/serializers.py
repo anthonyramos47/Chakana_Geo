@@ -236,7 +236,7 @@ def _unit(x, name: str, what: str) -> float:
     return x
 
 
-DEFINED_ON = ("vertices", "faces")
+DEFINED_ON = ("vertices", "faces", "edges")     # edges: curve networks
 
 def _shading(s, name, polygons: bool) -> str:
     if s not in ("auto", "flat", "smooth"):
@@ -260,7 +260,8 @@ COLORMAPS = ("viridis", "plasma", "inferno", "magma", "cividis", "coolwarm", "rd
 
 def _defined_on(d, name):
     if d not in DEFINED_ON:
-        raise ValueError(f"{name}: defined_on must be 'vertices' or 'faces', got {d!r}")
+        raise ValueError(f"{name}: defined_on must be 'vertices', 'faces' (surface meshes) "
+                         f"or 'edges' (curve networks), got {d!r}")
     return d
 
 

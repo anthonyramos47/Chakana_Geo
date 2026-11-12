@@ -117,6 +117,7 @@ def _track(objects) -> None:
                     info["n_vertices"] = len(o["points"]) // 3
                 elif kind == "curve_network":
                     info["n_vertices"] = len(o["vertices"]) // 3
+                    info["n_edges"] = len(o["edges"]) // 2
                 _structures[name] = info
 
 
@@ -134,7 +135,11 @@ def _check_quantity(func: str, target: str, n_values: int, defined_on: str,
     if info["type"] not in allowed:
         raise ValueError(f"{func}: {target!r} is a {info['type']}; this quantity needs a "
                          f"{' or '.join(allowed)}")
-    expected = info.get("n_faces" if defined_on == "faces" else "n_vertices")
+    need = {"faces": "surface_mesh", "edges": "curve_network"}.get(defined_on)
+    if need and info["type"] != need:
+        raise ValueError(f"{func}: defined_on={defined_on!r} needs a {need}; "
+                         f"{target!r} is a {info['type']}")
+    expected = info.get({"faces": "n_faces", "edges": "n_edges"}.get(defined_on, "n_vertices"))
     if expected is not None and n_values != expected:
         raise ValueError(f"{func}: {target!r} has {expected} {defined_on}, "
                          f"got {n_values} values")
@@ -241,6 +246,10 @@ def add_scalar_quantity(target: str, field_name: str, values,
                         cmap: str = "viridis", vminmax=None) -> None:
     """Mirrors structure.add_scalar_quantity().
 
+    Targets: surface meshes (defined_on "vertices" or "faces"), point clouds
+    ("vertices": one value per point) and curve networks ("vertices", or "edges": one
+    value per edge; on tubes a vertex scalar colours each edge with the mean of its ends).
+
     show: None (default) follows the target; True colours the target with it and shows the
     target if it was hidden; False adds it without colouring the mesh.
     cmap: viridis, plasma, inferno, magma, cividis, coolwarm, rdbu, piyg (diverging: signed
@@ -250,7 +259,7 @@ def add_scalar_quantity(target: str, field_name: str, values,
     d = ser.scalar_quantity(target, field_name, values, defined_on=defined_on, show=show,
                             cmap=cmap, vminmax=vminmax)
     _check_quantity("add_scalar_quantity", target, len(d["values"]), defined_on,
-                    ("surface_mesh",))
+                    ("surface_mesh", "point_cloud", "curve_network"))
     _push(d)
 
 

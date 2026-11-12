@@ -189,6 +189,7 @@ export class Viewer {
     e.mesh.dispose?.();   // InstancedMesh: frees its instance buffers
     this.scene.add(newObj);
     e.mesh = newObj;
+    this._reapplyScalar(e);    // its colours lived on the old tubes
     window.__invalidate?.();   // no viewer-changed: it would rebuild the panel mid-drag
   }
 
@@ -394,7 +395,7 @@ export class Viewer {
   addScalarQuantity(parentName, key, values, definedOn = 'vertices',
                     { cmap = 'viridis', vminmax = null } = {}) {
     const e = this._objects.get(parentName);
-    if (!e || e.type !== 'surface_mesh') return;
+    if (!e || !['surface_mesh', 'point_cloud', 'curve_network'].includes(e.type)) return;
     const wasActive = (e.activeScalar === key);
     if (e.children.has(key)) e.removeChild(key, this.scene, e.mesh);
     const child = new ScalarChild({ key, values, definedOn, cmap });

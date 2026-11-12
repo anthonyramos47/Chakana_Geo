@@ -136,6 +136,15 @@ export class ScalarChild extends Child {
    */
   apply(parentMesh, parentEntry) {
     const opts = parentEntry.opts;
+    if (parentMesh.isInstancedMesh) {
+      // points (one instance each) or curve tubes (one per edge): a colour per instance
+      const mc = parentMesh.material.color;
+      if (this._priorMaterialColor === undefined) this._priorMaterialColor = mc ? [mc.r, mc.g, mc.b] : null;
+      mc?.setRGB(1, 1, 1);                     // instance colours are multiplied by it
+      this._writeColors(parentMesh, opts);
+      parentMesh.material.needsUpdate = true;
+      return;
+    }
     if (this.definedOn === 'faces') {
       if (parentMesh.geometry.index !== null) {
         opts._indexedGeo    = parentMesh.geometry;
@@ -161,6 +170,31 @@ export class ScalarChild extends Child {
   }
 
   _writeColors(parentMesh, opts) {
+    const L = lut(this.cmap), values = this.values;
+    const lo = this.vmin, scale = 255 / ((this.vmax - this.vmin) || 1);
+    const colour = (v, out, k) => {
+      if (Number.isFinite(v)) {
+        const i = 3 * Math.round(Math.min(255, Math.max(0, (v - lo) * scale)));
+        out[3*k] = L[i]; out[3*k + 1] = L[i + 1]; out[3*k + 2] = L[i + 2];
+      } else {
+        out[3*k] = NAN_COLOR[0]; out[3*k + 1] = NAN_COLOR[1]; out[3*k + 2] = NAN_COLOR[2];
+      }
+    };
+    const at = i => (i < values.length ? values[i] : NaN);
+    const E = opts.edges;                       // curve networks
+    // a curve edge from a vertex scalar: the mean of its two ends
+    const edgeValue = k => (this.definedOn === 'edges' ? at(k) : (at(E[2*k]) + at(E[2*k + 1])) / 2);
+    if (parentMesh.isInstancedMesh) {
+      const n = parentMesh.count;
+      let attr = parentMesh.instanceColor;
+      if (!attr || attr.count !== n) {
+        attr = new THREE.InstancedBufferAttribute(new Float32Array(n * 3), 3);
+        parentMesh.instanceColor = attr;
+      }
+      for (let k = 0; k < n; k++) colour(E ? edgeValue(k) : at(k), attr.array, k);
+      attr.needsUpdate = true;
+      return;
+    }
     const geo = parentMesh.geometry;
     const n   = geo.attributes.position.count;
     let attr  = geo.getAttribute('color');
@@ -169,16 +203,17 @@ export class ScalarChild extends Child {
       attr = new THREE.BufferAttribute(new Float32Array(n * 3), 3);
       geo.setAttribute('color', attr);
     }
-    const cols = attr.array, L = lut(this.cmap), values = this.values;
-    const lo = this.vmin, scale = 255 / ((this.vmax - this.vmin) || 1);
-    const put = (k, v) => {
-      if (Number.isFinite(v)) {
-        const i = 3 * Math.round(Math.min(255, Math.max(0, (v - lo) * scale)));
-        cols[3*k] = L[i]; cols[3*k + 1] = L[i + 1]; cols[3*k + 2] = L[i + 2];
-      } else {                                  // NaN, ±Inf, or a missing value
-        cols[3*k] = NAN_COLOR[0]; cols[3*k + 1] = NAN_COLOR[1]; cols[3*k + 2] = NAN_COLOR[2];
+    if (E) {
+      // flat curve lines: two vertices per edge, in edge order
+      for (let k = 0; 2 * k + 1 < n; k++) {
+        colour(this.definedOn === 'edges' ? at(k) : at(E[2*k]), attr.array, 2 * k);
+        colour(this.definedOn === 'edges' ? at(k) : at(E[2*k + 1]), attr.array, 2 * k + 1);
       }
-    };
+      attr.needsUpdate = true;
+      return;
+    }
+    const cols = attr.array;
+    const put = (k, v) => colour(v, cols, k);   // NaN, ±Inf, a missing value: NaN colour
     if (this.definedOn === 'faces') {
       // non-indexed: the triangles of face fi follow each other, 3 corners each
       const tpf = opts.trisPerFace, perFace = Math.max(1, (opts.faceSize ?? 3) - 2);
@@ -199,6 +234,13 @@ export class ScalarChild extends Child {
   /** Restore the parent mesh to its pre-scalar state (colours, material, geometry). */
   dispose(parentMesh, parentEntry) {
     if (this._priorMaterialColor === undefined) return;  // apply() was never called
+    if (parentMesh.isInstancedMesh) {
+      parentMesh.instanceColor = null;
+      if (this._priorMaterialColor) parentMesh.material.color?.setRGB(...this._priorMaterialColor);
+      parentMesh.material.needsUpdate = true;
+      this._priorMaterialColor = undefined;
+      return;
+    }
     parentMesh.geometry.deleteAttribute('color');
     if (this.definedOn === 'faces') restoreIndexed(parentMesh, parentEntry.opts);
     if (this._priorMaterialColor) parentMesh.material.color?.setRGB(...this._priorMaterialColor);
