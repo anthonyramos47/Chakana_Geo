@@ -257,7 +257,10 @@ back). The choice, position and size are remembered.
 returns a dict), renders the current scene in plain and in studio mode and reports frame
 times (median, 95th percentile; each frame timed until the GPU finished it), triangles,
 draw calls, and memory: geometry buffers exactly; screen, studio and shadow buffers as
-estimates from their formats; the browser's JavaScript heap.
+estimates from their formats; the browser's JavaScript heap. For offline Python-side speed
+and memory evaluation across standard synthetic scenes, run `python -m kayviz.evaluate`
+(`--suite speed,memory`, `--scenes small|large|<id>`, `--out DIR`, `--compare baseline.json`,
+`--quick`), which writes `evaluate-<date>-<host>.json` and `.md`.
 
 **Access.** The viewer answers only this machine's programs and its own page: other web
 pages open in your browser cannot read the scene, run callbacks or stop the server
