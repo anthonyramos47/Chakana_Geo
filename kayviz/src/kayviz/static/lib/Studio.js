@@ -296,6 +296,10 @@ export class Studio {
   _markShadowCasters() {
     this.scene.traverse(o => {
       if (!o.isMesh || o === this.floor) return;
+      if (o.userData.sphereSprites) {          // its depth pass would see squares
+        o.castShadow = o.receiveShadow = false;
+        return;
+      }
       const m = Array.isArray(o.material) ? o.material[0] : o.material;
       o.castShadow = !!m && !m.userData.glass && !(m.transparent && m.opacity < 0.5);
       o.receiveShadow = !!m && !m.transparent;
@@ -312,7 +316,8 @@ export class Studio {
     this.scene.background = null;
     const hide = this._hidden;
     this.scene.traverseVisible(o => {
-      if (o === this.floor || o === this.grid || o.isLine || o.isPoints || o.isSprite) {
+      if (o === this.floor || o === this.grid || o.isLine || o.isPoints || o.isSprite ||
+          o.userData.sphereSprites) {
         hide.push(o); return;
       }
       const m = o.material && (Array.isArray(o.material) ? o.material[0] : o.material);

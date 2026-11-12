@@ -355,8 +355,13 @@ def curve_network(name: str, vertices, edges, color=(0.8, 0.2, 0.2), radius: flo
     }
 
 
-def point_cloud(name: str, points, color=(0.2, 0.5, 0.8), radius=None, show: bool = True):
-    """Mirrors ps.register_point_cloud(). show=False registers the object hidden (its checkbox in the scene panel unticked)."""
+def point_cloud(name: str, points, color=(0.2, 0.5, 0.8), radius=None, show: bool = True,
+                point_render: str = "sprite"):
+    """Mirrors ps.register_point_cloud(). show=False registers the object hidden (its checkbox in the scene panel unticked).
+    point_render: "sprite" (default; one quad per point, shaded as a sphere: fast for
+    millions of points, no studio shadow/AO) or "sphere" (real sphere geometry)."""
+    if point_render not in ("sprite", "sphere"):
+        raise ValueError(f"{name}: point_render must be 'sprite' or 'sphere', got {point_render!r}")
     return {
         "type":   "point_cloud",
         "name":   name,
@@ -364,6 +369,7 @@ def point_cloud(name: str, points, color=(0.2, 0.5, 0.8), radius=None, show: boo
         "color":  _rgb(color, name),
         "radius": _size(radius, name, "radius"),       # None: 0.5% of its size
         "show":   bool(show),
+        "render": point_render,
     }
 
 

@@ -69,9 +69,12 @@ class Scene:
         return self
 
     def register_point_cloud(self, name: str, points,
-                             color=(0.2, 0.5, 0.8), radius: float = None, show: bool = True):
-        """Mirrors ps.register_point_cloud(). show=False registers it hidden."""
-        self._objects.append(ser.point_cloud(name, points, color=color, radius=radius, show=show))
+                             color=(0.2, 0.5, 0.8), radius: float = None, show: bool = True,
+                             point_render: str = "sprite"):
+        """Mirrors ps.register_point_cloud(). show=False registers it hidden.
+        point_render: "sprite" (default) or "sphere", as kv.register_point_cloud."""
+        self._objects.append(ser.point_cloud(name, points, color=color, radius=radius, show=show,
+                                             point_render=point_render))
         return self
 
     # ── Quantity methods — mirrors structure.add_*_quantity() ────────────────

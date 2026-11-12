@@ -12,6 +12,7 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { Materials } from './lib/MaterialLibrary.js';
 import { SceneEntry, EdgeChild, ScalarChild, VectorChild } from './SceneEntry.js';
 import { polygonEdges } from './lib/edges.js';
+import { sphereSprites, setSpriteRadius } from './lib/PointSprites.js';
 
 // Default colours of vector quantities, in the order they are handed out
 // (the first one is the former single default).
@@ -96,12 +97,15 @@ export class Viewer {
     return mesh;
   }
 
-  registerPointCloud(name, points, color = [0.2, 0.5, 0.8], radius = null) {
+  registerPointCloud(name, points, color = [0.2, 0.5, 0.8], radius = null, render = 'sprite') {
     this._remove(name);
     radius = radius ?? 0.005 * this._size(points);         // relative: any unit works
     const pts = new Float32Array(points);
     const count = pts.length / 3;
-    const obj = this._buildSphereInstances(pts, count, color, radius);
+    // sprites: 2 triangles per point (lib/PointSprites.js); 'sphere': ~170
+    const obj = render === 'sphere'
+      ? this._buildSphereInstances(pts, count, color, radius)
+      : sphereSprites(pts, count, this._rgb(color), radius);
     obj.name = name;
     this.scene.add(obj);
     this._objects.set(name, new SceneEntry('point_cloud', obj, {
@@ -156,6 +160,11 @@ export class Viewer {
     if (!e || e.type !== 'point_cloud') return;
     e.opts.radius = r;
     e.radius      = r;
+    if (e.mesh.userData.sphereSprites) {
+      setSpriteRadius(e.mesh, r);
+      window.__invalidate?.();
+      return;
+    }
     // Only the sphere changes: instances, material (and a colour picked meanwhile)
     // stay; the old sphere is freed.
     const old = e.mesh.geometry;
@@ -640,7 +649,8 @@ export class Viewer {
         break;
       case 'point_cloud':
         this.registerPointCloud(obj.name, obj.points,
-                                obj.color ?? [0.2,0.5,0.8], obj.radius ?? null);
+                                obj.color ?? [0.2,0.5,0.8], obj.radius ?? null,
+                                obj.render ?? 'sprite');
         break;
       case 'edge_child':
         // { type:'edge_child', target, vertices, edges, color, radius }

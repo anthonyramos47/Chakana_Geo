@@ -241,3 +241,12 @@ class TestSetEnabled:
     def test_disable(self):
         d = ser.set_enabled("Mesh", False)
         assert d["enabled"] is False
+
+
+def test_point_render_option():
+    import numpy as np
+    from kayviz import serializers as ser
+    assert ser.point_cloud("P", np.zeros((2, 3)))["render"] == "sprite"
+    assert ser.point_cloud("P", np.zeros((2, 3)), point_render="sphere")["render"] == "sphere"
+    with pytest.raises(ValueError, match="P: point_render"):
+        ser.point_cloud("P", np.zeros((2, 3)), point_render="cube")

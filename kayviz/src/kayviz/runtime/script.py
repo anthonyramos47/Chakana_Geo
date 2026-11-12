@@ -225,10 +225,13 @@ def register_curve_network(name: str, vertices, edges,
 
 def register_point_cloud(name: str, points,
                          color=(0.2, 0.5, 0.8), radius: float = None,
-                         show: bool = True) -> None:
+                         show: bool = True, point_render: str = "sprite") -> None:
     """Mirrors ps.register_point_cloud(). show=False registers it hidden.
-    radius: sphere radius; None picks 0.5% of the cloud's size."""
-    _push(ser.point_cloud(name, points, color=color, radius=radius, show=show))
+    radius: sphere radius; None picks 0.5% of the cloud's size.
+    point_render: "sprite" (default: 2 triangles per point, drawn as a sphere; no
+    studio shadow or AO) or "sphere" (~170 triangles per point)."""
+    _push(ser.point_cloud(name, points, color=color, radius=radius, show=show,
+                          point_render=point_render))
 
 
 def add_scalar_quantity(target: str, field_name: str, values,
