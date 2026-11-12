@@ -277,6 +277,68 @@ def test_pushes_from_main_thread_are_not_captured_by_a_running_callback():
     assert out["app"] == ["FromCallback"]
 
 
+def test_pushes_from_threads_started_in_callback():
+    out = _run('''
+        kv.init()
+        thread_meta = {}
+        def push_pts(name, scale=1.0):
+            kv.register_point_cloud(name, np.ones((1, 3)) * scale)
+
+        def push_late(name):
+            time.sleep(0.6)
+            kv.register_point_cloud(name, np.zeros((1, 3)))
+
+        def gui():
+            if kv.imgui.button("Go"):
+                kv.register_point_cloud("FromCallback", np.zeros((1, 3)))
+                t_kv = kv.thread(push_pts, "FromKvThread", scale=3.0)
+                thread_meta["is_thread"] = isinstance(t_kv, threading.Thread)
+                thread_meta["daemon"] = t_kv.daemon
+                thread_meta["var_name"] = kv.script._push_sink_var.name
+                t_kv.join()
+                kv.thread(push_late, "FromKvThreadLate")
+                t_plain = threading.Thread(target=push_pts, args=("FromPlainThread",), daemon=True)
+                t_plain.start()
+                t_plain.join()
+                time.sleep(0.4)
+
+        kv.set_user_callback(gui, app_name="ctx")
+        base = kv.url()
+        names = lambda app: [o["name"] for o in requests.post(
+            base + f"/api/{app}/load").json()["objects"]]
+        with connect(base.replace("http", "ws") + "/api/ctx/ws") as app_ws, \\
+             connect(base.replace("http", "ws") + "/api/script/ws") as script_ws:
+            app_ws.send(json.dumps({"action": "_callback", "trigger": "Go", "state": {}}))
+            time.sleep(0.2)
+            kv.register_point_cloud("FromMain", np.zeros((1, 3)))
+            kv.thread(push_pts, "FromMainKvThread").join()
+
+            app_seen = []
+            while len(app_seen) < 3:
+                msg = recv_until(app_ws, lambda m: m.get("action") == "scene_update")
+                app_seen.extend(o["name"] for o in msg["objects"])
+
+            script_seen = []
+            while len(script_seen) < 3:
+                msg = recv_until(script_ws, lambda m: m.get("action") == "scene_update")
+                script_seen.extend(o["name"] for o in msg["objects"])
+
+        out["meta"] = thread_meta
+        out["app_ws"] = app_seen
+        out["script_ws"] = script_seen
+        out["app_buf"] = names("ctx")
+        out["script_buf"] = names("script")
+        cb_objs = requests.post(base + "/api/ctx/load").json()["objects"]
+        out["kv_points"] = next(o["points"] for o in cb_objs if o["name"] == "FromKvThread")
+    ''')
+    assert out["meta"] == {"is_thread": True, "daemon": True, "var_name": "kayviz_push_sink"}
+    assert out["app_ws"] == ["FromCallback", "FromKvThread", "FromKvThreadLate"]
+    assert out["app_buf"] == ["FromCallback", "FromKvThread", "FromKvThreadLate"]
+    assert set(out["script_ws"]) == {"FromPlainThread", "FromMain", "FromMainKvThread"}
+    assert set(out["script_buf"]) == {"FromPlainThread", "FromMain", "FromMainKvThread"}
+    assert out["kv_points"] == [3.0, 3.0, 3.0]
+
+
 def test_stop_reaches_a_running_streaming_action():
     # A "stop" sent while an async (streaming) action runs is handled at once.
     out = _run('''

@@ -34,6 +34,7 @@ Environment variables:
 from __future__ import annotations
 
 import asyncio
+import contextvars
 import inspect
 import os
 import sys
@@ -58,18 +59,24 @@ _loop: Optional[asyncio.AbstractEventLoop] = None   # loop of a server in this p
 _opened: set = set()                # app names a browser tab was opened for
 
 # Push sink: CallbackApp._CallbackPushCapture redirects geometry pushed inside a
-# user callback away from the script channel and into the app's buffer. The
-# callback runs in a worker thread, so the sink is per thread: pushes made by
-# other threads (the script's main thread) at the same time still go out normally.
-_sink_local = threading.local()
+# user callback away from the script channel and into the app's buffer. A
+# ContextVar is copied by asyncio.to_thread and by kv.thread(), while pushes from
+# the main thread or a plain threading.Thread keep the default None (script channel).
+_push_sink_var: contextvars.ContextVar[Optional[callable]] = contextvars.ContextVar(
+    "kayviz_push_sink", default=None
+)
 
 
 def _push_sink() -> Optional[callable]:
-    return getattr(_sink_local, "sink", None)
+    return _push_sink_var.get()
 
 
-def _set_push_sink(sink: Optional[callable]) -> None:
-    _sink_local.sink = sink
+def _set_push_sink(sink: Optional[callable]) -> contextvars.Token:
+    return _push_sink_var.set(sink)
+
+
+def _reset_push_sink(token: contextvars.Token) -> None:
+    _push_sink_var.reset(token)
 
 # App opened by show(): the last app registered from this process.
 _default_app: Optional[str] = None
@@ -707,6 +714,19 @@ def set_user_callback(fn: callable, app_name: str = "callback",
     from .callback_app import CallbackApp
     _refuse_if_attached("set_user_callback")
     register_app(CallbackApp(fn, app_name=app_name, on_load=on_load))
+
+
+def thread(fn: callable, *args, **kwargs) -> threading.Thread:
+    """
+    Start a daemon thread that runs ``fn(*args, **kwargs)`` in a copy of the
+    current ``contextvars`` context, so geometry pushed from it goes where the
+    caller's pushes go (e.g. the callback's buffer when started inside
+    ``set_user_callback``).
+    """
+    ctx = contextvars.copy_context()
+    t = threading.Thread(target=ctx.run, args=(fn, *args), kwargs=kwargs, daemon=True)
+    t.start()
+    return t
 
 
 def show(block: "str | bool" = "auto", app: str = None) -> None:
