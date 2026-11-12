@@ -418,6 +418,7 @@ def test_quantities_are_checked_against_their_target():
             ("length", lambda: kv.add_scalar_quantity("M", "s", np.zeros(3))),
             ("faces", lambda: kv.add_scalar_quantity("M", "s", np.zeros(4), defined_on="faces")),
             ("on points", lambda: kv.add_scalar_quantity("P", "s", np.zeros(5))),
+            ("points length", lambda: kv.add_scalar_quantity("P", "s", np.zeros(4))),
             ("vector length", lambda: kv.add_vector_quantity("P", "v", np.zeros((4, 3)))),
         ]:
             try:
@@ -442,7 +443,8 @@ def test_quantities_are_checked_against_their_target():
     assert "no structure named 'Mesh'" in e["typo"] and "registered: M, P" in e["typo"]
     assert "has 4 vertices, got 3" in e["length"]
     assert "has 2 faces, got 4" in e["faces"]
-    assert "is a point_cloud" in e["on points"]
+    assert e["on points"] is None                      # point clouds take scalars
+    assert "has 5 vertices, got 4" in e["points length"]
     assert "has 5 vertices, got 4" in e["vector length"]
     assert "no structure named 'M'" in e["removed"]
     assert "no app named 'typo'" in e["app"]
