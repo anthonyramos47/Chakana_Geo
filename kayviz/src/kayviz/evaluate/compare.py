@@ -16,6 +16,10 @@ DEFAULT_TOLERANCES: dict[str, float] = {
     "bytes": 0.05,
 }
 
+# Changes smaller than this (per unit) are never regressions: a millisecond timing
+# jitters by more than 25 % between runs, and an MB of memory is allocator noise.
+MIN_ABS_CHANGE: dict[str, float] = {"ms": 2.0, "mb": 2.0}
+
 
 def metric_tolerance(row: dict, tolerances: dict[str, float] | None = None) -> float:
     """Return the relative tolerance (e.g. 0.25 for +25 %) for *row*."""
@@ -84,6 +88,9 @@ def compare_reports(
                 regressed = rel_change > tol
             else:
                 regressed = (-rel_change) > tol
+        floor = MIN_ABS_CHANGE.get(str(cur.get("unit") or "").lower())
+        if regressed and floor is not None and abs(float(c_val) - float(b_val or 0.0)) < floor:
+            regressed = False
 
         entry = {
             "suite": cur.get("suite"),

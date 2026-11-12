@@ -109,14 +109,24 @@ def test_compare_passes_identical_and_flags_regression(tmp_path):
     assert same["ok"] is True
     assert same["regressions"] == []
 
-    # Synthetic time regression (+40% > +25% tolerance).
+    # Synthetic time regression (+40% > +25% tolerance, and above the 2 ms floor).
     reg_time = copy.deepcopy(baseline)
     for row in reg_time["results"]:
         if row["metric"] == "encode_ms":
-            row["value"] = round(float(row["value"]) * 1.4 + 1.0, 4)
+            row["value"] = round(float(row["value"]) * 1.4 + 5.0, 4)
     res_time = compare_reports(baseline, reg_time)
     assert res_time["ok"] is False
     assert any(r["metric"] == "encode_ms" for r in res_time["regressions"])
+
+    # A large relative change of a tiny timing is noise, not a regression.
+    jitter = copy.deepcopy(baseline)
+    for row in jitter["results"]:
+        if row["metric"] == "encode_ms":
+            row["value"] = round(float(row["value"]) * 1.5 + 0.5, 4) if row["value"] < 1 else row["value"]
+            row["value"] = min(row["value"], float(next(
+                b["value"] for b in baseline["results"]
+                if b["metric"] == "encode_ms" and b["scene"] == row["scene"])) + 1.5)
+    assert compare_reports(baseline, jitter)["ok"] is True
 
     # Synthetic bytes regression (+10% > +5% tolerance).
     reg_bytes = copy.deepcopy(baseline)
