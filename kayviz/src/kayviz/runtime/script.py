@@ -327,6 +327,27 @@ def look_at(position, target=(0.0, 0.0, 0.0)) -> None:
     _view({"camera": {"position": pos, "target": tgt}})
 
 
+def export(name: str, path, format: str | None = None):
+    """Write the registered object *name* (surface mesh, curve network or point cloud)
+    to *path*: ``.obj`` or ``.ply`` (or *format*). Polygon meshes keep their
+    polygons; PLY also carries the object's vertex and face scalar quantities.
+    Coordinates are yours (the scene origin added back). Needs no browser.
+
+    Returns the path written."""
+    from .. import exporter as _export
+    from .broadcast_mixin import BroadcastMixin
+    if _mode == "attached":
+        raise RuntimeError("kv.export: the scene lives in the shared server's process; "
+                           "export from there, or call kayviz.exporter.write(path, obj)")
+    for app_name in ["script"] + [n for n in _registry.app_names() if n != "script"]:
+        app = _registry.get_app(app_name)
+        buf = getattr(app, "_buffer", None) if isinstance(app, BroadcastMixin) else None
+        if buf and name in buf:
+            quantities = [o for k, o in buf.items() if k.startswith(name + "::")]
+            return _export.write(path, buf[name], quantities, fmt=format)
+    raise ValueError(f"kv.export: no object named {name!r} (registered from this process)")
+
+
 def set_origin(origin) -> None:
     """Send positions relative to *origin* (a 3D point), or None to let kayviz choose.
 

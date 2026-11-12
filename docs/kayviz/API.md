@@ -248,6 +248,12 @@ direction, **R** (or the ⤢ button) resets the view; `kv.look_at(position, targ
 `kv.reset_camera()` drive the camera from Python. Clip planes and the grid follow the scene
 size, so any unit works.
 
+**Export.** `kv.export(name, path)` writes a registered surface mesh, curve network or point
+cloud to `.obj` or `.ply` without a browser. Polygon meshes keep their polygons (rebuilt from
+the triangles kayviz made); PLY is binary and carries the object's vertex and face scalar
+quantities as properties; coordinates are yours (any scene origin added back).
+`kayviz.exporter.write(path, obj, quantities)` does the same for serializer dicts.
+
 **Far from the origin** (geo-referenced data: float32, the GPU's precision, keeps only ~0.5 m
 at 4.5e6). Positions are sent relative to a scene origin, subtracted in float64 first. The
 first positions of a scene decide it: their rounded centre when it is farther than
