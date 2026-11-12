@@ -39,17 +39,20 @@ function geometryBytes(scene) {
 }
 
 /** Estimated bytes of the render buffers, from their pixel formats. */
-function bufferBytes(renderer, studio) {
+export function bufferBytes(renderer, studio) {
   const size = renderer.getDrawingBufferSize(new THREE.Vector2());
   const px = size.x * size.y;
   // canvas: 4x MSAA colour + depth, plus the resolved colour
   const screen = px * (4 * 4 + 4 * 4 + 4);
   let composer = 0, shadow = 0;
   if (studio?.enabled) {
-    // two half-float RGBA targets, 4x MSAA + resolve, with MSAA depth
-    composer = 2 * px * (8 * 4 + 8 + 4 * 4);
+    const pr = renderer.getPixelRatio?.() ?? window.devicePixelRatio ?? 1;
+    const s = Math.min(pr, studio.studioPixelRatio ?? studio.pixelRatioCap ?? 1) / pr;
+    const spx = Math.round(size.x * s) * Math.round(size.y * s);
+    // one 4x MSAA half-float target (render pass) + one non-MSAA target (post passes)
+    composer = spx * ((8 * 4 + 8 + 4 * 4) + 8);
     // GTAO: normals + depth, AO and denoise targets (half float)
-    composer += px * (4 + 4 + 8 + 8);
+    composer += spx * (4 + 4 + 8 + 8);
     const m = studio.keyLight.shadow.mapSize;
     shadow = m.x * m.y * (8 + 8 + 4);              // VSM map, blur pass, depth
   }

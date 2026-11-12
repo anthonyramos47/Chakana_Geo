@@ -292,9 +292,10 @@ function savePicture({ background = 'viewer', scale = 2 } = {}) {
   const maxSide = renderer.capabilities.maxTextureSize;
   const s = Math.min(scale, maxSide / (Math.max(size.x, size.y) * pr),
                      Math.sqrt(SAVE_MAX_PIXELS / (size.x * size.y)) / pr);
-  const oldBg = scene.background, oldGrid = grid.visible;
+  const oldBg = scene.background, oldGrid = grid.visible, oldCap = studio.studioPixelRatio;
   const oldClear = renderer.getClearColor(new THREE.Color()), oldAlpha = renderer.getClearAlpha();
   renderer.setPixelRatio(pr * s);
+  if (studio.enabled) studio.setPixelRatioCap(pr * s);
   if (background === 'transparent') {
     scene.background = null;
     renderer.setClearColor(0x000000, 0);
@@ -317,6 +318,7 @@ function savePicture({ background = 'viewer', scale = 2 } = {}) {
     grid.visible = oldGrid;
     renderer.setClearColor(oldClear, oldAlpha);
     renderer.setPixelRatio(pr);
+    if (studio.enabled) studio.setPixelRatioCap(oldCap);
     window.__invalidate();               // the resize back cleared the canvas
   }
 }
