@@ -89,6 +89,7 @@ return {"action": "scene_update", "objects": s.snapshot()}
 | `register_curve_network(name, P, E, color, radius)` — `radius=0` flat lines, `>0` tubes | `ps.register_curve_network` |
 | `register_point_cloud(name, X, color, radius, point_render="sprite")` | `ps.register_point_cloud`; points are drawn as sphere sprites (2 triangles each, 1M points at ~50 fps on an M-series Mac); `point_render="sphere"` uses real spheres (~170 triangles each), which also cast studio shadows and get AO |
 | `register_vector_field(name, origins, vectors, length, radius, color)` | — |
+| `add_parameterization_quantity(target, field, uv, style="checker", scale=1.0)` | `add_parameterization_quantity`; uv one (u, v) per vertex of a surface mesh, shown as a checkerboard or `"grid"` lines, `scale` cells per unit (per-corner uv not supported yet) |
 | `add_scalar_quantity(target, field, values, defined_on)` | `structure.add_scalar_quantity`; targets: surface meshes (`"vertices"`, `"faces"`), point clouds (`"vertices"`: per point), curve networks (`"vertices"`, `"edges"`; on tubes a vertex scalar colours each edge with the mean of its ends); `isolines=True` (surface-mesh vertex scalars) draws contour lines every `iso_spacing` (default a tenth of the colour range), `iso_width` pixels wide |
 | `add_vector_quantity(target, field, vectors, defined_on, length, radius)` | `structure.add_vector_quantity` |
 | `set_enabled(name, enabled)` | `structure.set_enabled` |

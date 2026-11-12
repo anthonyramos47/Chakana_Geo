@@ -271,6 +271,17 @@ def add_scalar_quantity(target: str, field_name: str, values,
     _push(d)
 
 
+def add_parameterization_quantity(target: str, field_name: str, uv,
+                                  style: str = "checker", scale: float = 1.0) -> None:
+    """Show a parameterization of the surface mesh *target*: uv, one (u, v) per
+    vertex, as a checkerboard ("checker") or grid lines ("grid"), *scale* cells per
+    unit of uv. Stretching, flips and seams show as distorted or broken cells."""
+    d = ser.parameterization_quantity(target, field_name, uv, style=style, scale=scale)
+    _check_quantity("add_parameterization_quantity", target, len(d["uv"]) // 2, "vertices",
+                    ("surface_mesh",))
+    _push(d)
+
+
 def add_vector_quantity(target: str, field_name: str, vectors,
                         defined_on: str = "vertices",
                         length: float = None, radius: float = None,

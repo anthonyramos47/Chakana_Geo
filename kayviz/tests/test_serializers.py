@@ -274,3 +274,18 @@ def test_wireframe_option():
     assert "show_wireframe" not in ser.surface_mesh("M", V, F)
     with pytest.raises(ValueError, match="wireframe_width"):
         ser.surface_mesh("M", V, F, show_wireframe=True, wireframe_width=0)
+
+
+def test_parameterization_quantity():
+    import numpy as np
+    from kayviz import serializers as ser
+    d = ser.parameterization_quantity("M", "uv", np.zeros((4, 2)), style="grid", scale=8)
+    assert d["type"] == "parameterization_quantity" and d["style"] == "grid" and d["scale"] == 8.0
+    assert d["uv"].dtype == np.float32 and len(d["uv"]) == 8
+    for bad, match in [(np.zeros((4, 3)), "shape"), (np.full((4, 2), np.nan), "NaN")]:
+        with pytest.raises(ValueError, match=match):
+            ser.parameterization_quantity("M", "uv", bad)
+    with pytest.raises(ValueError, match="style"):
+        ser.parameterization_quantity("M", "uv", np.zeros((4, 2)), style="dots")
+    with pytest.raises(ValueError, match="scale"):
+        ser.parameterization_quantity("M", "uv", np.zeros((4, 2)), scale=0)

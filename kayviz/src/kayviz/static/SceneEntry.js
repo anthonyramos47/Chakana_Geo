@@ -115,6 +115,76 @@ function restoreIndexed(parentMesh, opts) {
   opts.nonIndexed  = false;
 }
 
+// ── ParamChild ───────────────────────────────────────────────────────────────
+
+/**
+ * A parameterization shown on its surface: a checkerboard or a grid in UV space
+ * (distortion, flips and seams become visible). The UVs are a vertex attribute;
+ * a shader patch replaces the surface colour. Unticked, the patch goes away.
+ */
+export class ParamChild extends Child {
+  constructor({ key, uv, style = 'checker', scale = 1.0 }) {
+    super(key, 'param');
+    this.uv    = uv;                // 2 per vertex
+    this.style = style;             // 'checker' | 'grid'
+    this.scale = scale;             // cells per unit of UV
+    this._mesh = null;
+  }
+
+  apply(parentMesh, parentEntry) {
+    this._mesh = parentMesh;
+    // the indexed geometry is the base; a face scalar shows a non-indexed copy of it
+    const base = parentEntry.opts._indexedGeo ?? parentMesh.geometry;
+    this._base = base;
+    base.setAttribute('kvUV', new THREE.BufferAttribute(new Float32Array(this.uv), 2));
+    if (parentMesh.geometry !== base) {
+      const idx = base.index.array, uv = this.uv, out = new Float32Array(idx.length * 2);
+      for (let k = 0; k < idx.length; k++) { out[2*k] = uv[2*idx[k]]; out[2*k + 1] = uv[2*idx[k] + 1]; }
+      parentMesh.geometry.setAttribute('kvUV', new THREE.BufferAttribute(out, 2));
+    }
+    this._patch();
+  }
+
+  _patch() {
+    const m = this._mesh;
+    if (!m) return;
+    if (!this.visible) { setPatch(m.material, 'param', null); return; }
+    const scale = { value: this.scale }, grid = this.style === 'grid';
+    setPatch(m.material, 'param', shader => {
+      shader.uniforms.kvParamScale = scale;
+      shader.vertexShader = 'attribute vec2 kvUV;\nvarying vec2 vKvUV;\n' +
+        shader.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\nvKvUV = kvUV;');
+      shader.fragmentShader = 'uniform float kvParamScale;\nvarying vec2 vKvUV;\n' +
+        shader.fragmentShader.replace('#include <color_fragment>', grid ? `#include <color_fragment>
+{
+  vec2 kvG = vKvUV * kvParamScale;
+  vec2 kvD = abs(fract(kvG - 0.5) - 0.5) / max(fwidth(kvG), vec2(1e-6));
+  float kvLine = 1.0 - smoothstep(0.0, 1.0, min(kvD.x, kvD.y));
+  diffuseColor.rgb = mix(vec3(0.93), vec3(0.15, 0.35, 0.75), kvLine);
+}` : `#include <color_fragment>
+{
+  vec2 kvG = floor(vKvUV * kvParamScale);
+  float kvC = mod(kvG.x + kvG.y, 2.0);
+  diffuseColor.rgb = mix(vec3(0.93), vec3(0.85, 0.45, 0.2), kvC);
+}`);
+    });
+  }
+
+  setVisible(visible) {
+    this.visible = visible;
+    this._patch();
+  }
+
+  dispose() {
+    const m = this._mesh;
+    if (!m) return;
+    m.geometry.deleteAttribute('kvUV');
+    this._base?.deleteAttribute('kvUV');
+    setPatch(m.material, 'param', null);
+    this._mesh = this._base = null;
+  }
+}
+
 export class ScalarChild extends Child {
   constructor({ key, values, definedOn = 'vertices', cmap = 'viridis', isolines = null }) {
     super(key, 'scalar');

@@ -135,6 +135,9 @@ def test_scalars_on_points_and_curves_are_checked():
             ("edges_wrong_count", lambda: kv.add_scalar_quantity("C", "e", np.arange(5.0), defined_on="edges")),
             ("faces_on_curve", lambda: kv.add_scalar_quantity("C", "f", np.arange(3.0), defined_on="faces")),
             ("edges_on_mesh", lambda: kv.add_scalar_quantity("M", "e", np.arange(3.0), defined_on="edges")),
+            ("uv_ok", lambda: kv.add_parameterization_quantity("M", "uv", np.zeros((3, 2)))),
+            ("uv_count", lambda: kv.add_parameterization_quantity("M", "uv", np.zeros((4, 2)))),
+            ("uv_on_points", lambda: kv.add_parameterization_quantity("P", "uv", np.zeros((4, 2)))),
         ]:
             try:
                 call(); out[label] = "ok"
@@ -153,3 +156,5 @@ def test_scalars_on_points_and_curves_are_checked():
     assert "has 3 edges" in out["edges_wrong_count"]
     assert "needs a surface_mesh" in out["faces_on_curve"]
     assert "needs a curve_network" in out["edges_on_mesh"]
+    assert out["uv_ok"] == "ok" and "has 3 vertices" in out["uv_count"]
+    assert "is a point_cloud" in out["uv_on_points"]

@@ -529,6 +529,30 @@ def scalar_quantity(target_name: str, field_name: str, values, defined_on="verti
     return d
 
 
+def parameterization_quantity(target_name: str, field_name: str, uv,
+                              style: str = "checker", scale: float = 1.0):
+    """A parameterization of a surface mesh: uv, one (u, v) per vertex, shown as a
+    checkerboard ("checker") or grid lines ("grid") with *scale* cells per unit."""
+    q = f"{target_name}::{field_name}"
+    arr = _array(uv, q, "uv")
+    if arr.ndim != 2 or arr.shape[1] != 2:
+        raise ValueError(f"{q}: uv must have shape (N, 2), one (u, v) per vertex, got {arr.shape}")
+    if not np.isfinite(arr).all():
+        raise ValueError(f"{q}: uv contains NaN or infinite values")
+    if style not in ("checker", "grid"):
+        raise ValueError(f"{q}: style must be 'checker' or 'grid', got {style!r}")
+    if not float(scale) > 0:
+        raise ValueError(f"{q}: scale must be positive, got {scale}")
+    return {
+        "type":   "parameterization_quantity",
+        "target": target_name,
+        "name":   field_name,
+        "uv":     _f32(arr),
+        "style":  style,
+        "scale":  float(scale),
+    }
+
+
 def vector_quantity(target_name: str, field_name: str, vectors, defined_on="vertices",
                     length: float | None = None, radius: float = None, show: bool | None = None,
                     color=None, vectortype: str = "standard"):

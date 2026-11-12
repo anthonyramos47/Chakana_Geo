@@ -10,7 +10,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { Materials } from './lib/MaterialLibrary.js';
-import { SceneEntry, EdgeChild, ScalarChild, VectorChild } from './SceneEntry.js';
+import { SceneEntry, EdgeChild, ScalarChild, VectorChild, ParamChild } from './SceneEntry.js';
 import { polygonEdges } from './lib/edges.js';
 import { sphereSprites, setSpriteRadius } from './lib/PointSprites.js';
 import { setPatch } from './lib/patches.js';
@@ -336,6 +336,7 @@ export class Viewer {
   /** After a material swap: colour the new material with the active scalar again. */
   _reapplyScalar(e) {
     if (e.opts.flat) this.setFlat(e.mesh.name, true);
+    for (const c of e.children.values()) if (c.type === 'param') c.apply(e.mesh, e);
     const child = e.activeScalar && e.children.get(e.activeScalar);
     if (!child) return;
     child._priorMaterialColor = undefined;   // the new material holds e.color
@@ -438,6 +439,18 @@ export class Viewer {
     if (wasActive || e.activeScalar === null) {
       this.setActiveScalar(parentName, key);
     }
+    this._emit();
+  }
+
+  /** A parameterization (uv: 2 per vertex) shown as a checkerboard or a grid. */
+  addParameterization(parentName, key, uv, { style = 'checker', scale = 1.0 } = {}) {
+    const e = this._objects.get(parentName);
+    if (!e || e.type !== 'surface_mesh') return;
+    if (e.children.has(key)) e.removeChild(key, this.scene, e.mesh);
+    const child = new ParamChild({ key, uv, style, scale });
+    e.addChild(child);
+    child.apply(e.mesh, e);
+    window.__invalidate?.();
     this._emit();
   }
 
@@ -734,6 +747,10 @@ export class Viewer {
         // { type:'edge_child', target, vertices, edges, color, radius }
         this.addEdgeChild(obj.target, obj.vertices, obj.edges,
                           obj.color ?? [0.1,0.1,0.1], obj.radius ?? 0);
+        break;
+      case 'parameterization_quantity':
+        this.addParameterization(obj.target, obj.name, obj.uv,
+                                 { style: obj.style ?? 'checker', scale: obj.scale ?? 1 });
         break;
       case 'scalar_quantity': {
         this.addScalarQuantity(obj.target, obj.name, obj.values,

@@ -96,6 +96,13 @@ class Scene:
         )
         return self
 
+    def add_parameterization_quantity(self, target_name: str, field_name: str, uv,
+                                      style: str = "checker", scale: float = 1.0):
+        """Mirrors kayviz.add_parameterization_quantity."""
+        self._objects.append(ser.parameterization_quantity(target_name, field_name, uv,
+                                                           style=style, scale=scale))
+        return self
+
     def add_vector_quantity(self, target_name: str, field_name: str,
                             vectors, defined_on: str = "vertices",
                             length: float = None, radius: float = None,
