@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * app_loader.js — App bootstrap layer.
  *

@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * auto_panel.js — Schema-driven widget builder.
  *
@@ -18,10 +19,10 @@
  * `schema`.  Mutates `state` with the defaults and wires onChange → debounced
  * `_set_state` push over `ws`.
  *
- * @param {GUI}       target   — lil-gui GUI or folder to add sections into
+ * @param {import('lil-gui').GUI} target   — lil-gui GUI or folder to add sections into
  * @param {object[]}  schema   — widget descriptor array from /api/<app>/schema
  * @param {object}    state    — plain object; fields are set from schema defaults
- * @param {WSClient}  ws       — WebSocket client
+ * @param {import('../ws.js').WSClient} ws       — WebSocket client
  * @param {number}    [debounceMs=120]
  */
 export function buildSchemaWidgets(target, schema, state, ws, debounceMs = 120) {

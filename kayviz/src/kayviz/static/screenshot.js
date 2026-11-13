@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * screenshot.js — server-driven canvas capture.
  *

@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * scene_panel.js — Structure list panel.
  *
@@ -28,7 +29,7 @@ import { dockable }       from './dock.js';
 
 export class ScenePanel {
   /**
-   * @param {Viewer} viewer  — the viewer.js Viewer instance
+   * @param {import('../viewer.js').Viewer} viewer  — the viewer.js Viewer instance
    * @param {object} opts    — { width: number (px), lights: { ambient, keyLight, fillLight } }
    */
   constructor(viewer, opts = {}) {
@@ -36,7 +37,7 @@ export class ScenePanel {
     this._width  = opts.width ?? 280;
     this._root   = this._buildRoot();
     document.body.appendChild(this._root);
-    dockable(this._root, this._root.firstElementChild, 'scene');   // header bar
+    dockable(this._root, /** @type {HTMLElement} */ (this._root.firstElementChild), 'scene');   // header bar
 
     // Embed lighting panel above the structure list if lights are provided
     if (opts.lights) {
@@ -69,7 +70,7 @@ export class ScenePanel {
         pending = null;
         const editing = this._root.contains(document.activeElement) &&
                         document.activeElement.tagName === 'INPUT' &&
-                        document.activeElement.type !== 'checkbox';
+                        /** @type {HTMLInputElement} */ (document.activeElement).type !== 'checkbox';
         if (this._busy || editing) this._rebuildDue = true;
         else this._rebuild();
       }, 50);
@@ -101,7 +102,7 @@ export class ScenePanel {
       opt.selected = (mName === this._viewer.material);
       select.appendChild(opt);
     }
-    select.addEventListener('change', e => this._viewer.setGlobalMaterial(e.target.value));
+    select.addEventListener('change', e => this._viewer.setGlobalMaterial(/** @type {HTMLSelectElement} */ (e.target).value));
     line.append(label, select);
     return line;
   }
@@ -714,8 +715,9 @@ export class ScenePanel {
     input.value  = this._rgbToHex(rgb);
     input.style.display = 'none';    // hide native input, use swatch as trigger
     input.addEventListener('input', e => {
-      swatch.style.background = e.target.value;
-      onChange(e.target.value);
+      const hex = /** @type {HTMLInputElement} */ (e.target).value;
+      swatch.style.background = hex;
+      onChange(hex);
     });
 
     wrap.append(swatch, input);
@@ -754,7 +756,7 @@ export class ScenePanel {
     input.value = value;
     Object.assign(input.style, { flex: '1', cursor: 'pointer', accentColor: '#4a9eff' });
     input.addEventListener('input', e => {
-      const v = parseFloat(e.target.value);
+      const v = parseFloat(/** @type {HTMLInputElement} */ (e.target).value);
       valDisplay.textContent = fmt(v);
       onChange(v);
     });
@@ -780,9 +782,9 @@ export class ScenePanel {
         done = true;
         const v = parseFloat(edit.value);
         if (apply && Number.isFinite(v)) {
-          if (v < parseFloat(input.min)) input.min = v;
-          if (v > parseFloat(input.max)) input.max = v;
-          input.value = v;
+          if (v < parseFloat(input.min)) input.min = String(v);
+          if (v > parseFloat(input.max)) input.max = String(v);
+          input.value = String(v);
           valDisplay.textContent = fmt(v);
           onChange(v);
         }
@@ -850,7 +852,7 @@ export class ScenePanel {
     });
 
     input.addEventListener('input', e => {
-      const v = parseFloat(e.target.value);
+      const v = parseFloat(/** @type {HTMLInputElement} */ (e.target).value);
       valDisplay.textContent = fmt(v);
       onChange(v);
     });

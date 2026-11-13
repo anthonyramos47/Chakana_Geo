@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * dock.js — panels that are either anchored (docked at their edge of the window,
  * the default) or loose (a floating window: drag it by its title bar, resize it

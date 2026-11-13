@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * Studio.js — "studio" render mode: a presentation look for figures and screenshots.
  *
@@ -34,7 +35,9 @@ class CallbackPass extends Pass {
   render() { this.fn(); }
 }
 
-function gradientTexture([top, mid, low]) {
+/** @param {string[]} stops  top, middle, bottom colours */
+function gradientTexture(stops) {
+  const [top, mid, low] = stops;
   const c = document.createElement('canvas');
   c.width = 4; c.height = 512;
   const g = c.getContext('2d');
@@ -75,7 +78,7 @@ export class Studio {
    * @param {THREE.Scene} scene
    * @param {THREE.Camera} camera
    * @param {{keyLight: THREE.DirectionalLight, ambient: THREE.AmbientLight,
-   *          grid: THREE.Object3D}} opts
+   *          grid: THREE.Object3D, up?: string}} opts
    */
   constructor(renderer, scene, camera, { keyLight, ambient, grid, up = 'y' }) {
     this.renderer = renderer;
@@ -191,7 +194,7 @@ export class Studio {
     }
     r.shadowMap.needsUpdate = true;
     // Shadow-map type and tone mapping are baked into compiled programs.
-    s.traverse(o => {
+    s.traverse((/** @type {any} */ o) => {
       if (!o.material) return;
       for (const m of [o.material].flat()) m.needsUpdate = true;
     });
@@ -223,7 +226,7 @@ export class Studio {
   /** Refit AO radius, shadow frustum and floor to the visible objects. */
   refit() {
     const box = new THREE.Box3();
-    this.scene.traverseVisible(o => {
+    this.scene.traverseVisible((/** @type {any} */ o) => {
       if (o === this.floor || o === this.grid || o.isLight || o.userData.studioHelper) return;
       if ((o.isMesh || o.isLine || o.isPoints) && o.geometry) box.expandByObject(o);
     });
@@ -270,7 +273,7 @@ export class Studio {
   _releaseGPU(shadowMapSize) {
     this.composer.renderTarget1.dispose();
     this.composer.renderTarget2.dispose();
-    this.gtao.normalRenderTarget.dispose();
+    /** @type {any} */ (this.gtao).normalRenderTarget.dispose();
     this.gtao.gtaoRenderTarget.dispose();
     this.gtao.pdRenderTarget.dispose();
     const sh = this.keyLight.shadow;
@@ -294,7 +297,7 @@ export class Studio {
   // Opaque-ish meshes cast shadows; very translucent ones and helpers don't. Opaque meshes
   // also receive them, so objects shade each other and not only the floor.
   _markShadowCasters() {
-    this.scene.traverse(o => {
+    this.scene.traverse((/** @type {any} */ o) => {
       if (!o.isMesh || o === this.floor) return;
       if (o.userData.sphereSprites || o.userData.overlay) {   // depth pass: squares / lines
         o.castShadow = o.receiveShadow = false;
@@ -315,7 +318,7 @@ export class Studio {
     this._background = this.scene.background;
     this.scene.background = null;
     const hide = this._hidden;
-    this.scene.traverseVisible(o => {
+    this.scene.traverseVisible((/** @type {any} */ o) => {
       if (o === this.floor || o === this.grid || o.isLine || o.isPoints || o.isSprite ||
           o.userData.sphereSprites || o.userData.overlay) {
         hide.push(o); return;

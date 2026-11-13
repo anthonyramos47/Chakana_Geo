@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * benchmark.js — measure what drawing the current scene costs.
  *

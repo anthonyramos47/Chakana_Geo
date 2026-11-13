@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * auto_callback_panel.js — Schema-driven panel for CallbackApp.
  *
@@ -21,7 +22,7 @@ const DEBOUNCE_MS = 120;
 
 export default class AutoCallbackPanel extends Panel {
   /**
-   * @param {WSClient}  ws
+   * @param {import('../ws.js').WSClient}  ws
    * @param {object[]}  schema   — widget descriptors from /api/<app>/schema
    * @param {string}    title    — panel window title (default "Controls")
    */

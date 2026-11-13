@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * ws.js — WebSocket client.
  *
@@ -66,7 +67,7 @@ export function decodeFrame(buf) {
 export class WSClient {
   /**
    * @param {string} url     WebSocket URL, e.g. wsUrl('lmesh/ws') (urls.js)
-   * @param {Viewer} viewer  viewer.js Viewer instance
+   * @param {import('./viewer.js').Viewer} viewer  viewer.js Viewer instance
    * @param {HTMLElement} statusEl  optional status bar element
    */
   constructor(url, viewer, statusEl = null) {
@@ -74,6 +75,8 @@ export class WSClient {
     this._handlers = [];
     this._status   = statusEl;
     this._url      = url;
+    /** @type {string[]} */
+    this._pending  = [];                  // messages sent while reconnecting
     this._connect();
   }
 

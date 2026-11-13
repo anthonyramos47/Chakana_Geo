@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * main.js — Three.js renderer, scene, camera, and render loop.
  *
@@ -20,7 +21,7 @@ import { benchmark, benchmarkTable, runBenchmarkJob } from './benchmark.js';
 import { dockable, bringToFront } from './gui/dock.js';
 
 // Up axis, written into the page by the server (kv.set_up_dir): "z" (default) or "y".
-const UP = document.querySelector('meta[name="kayviz-up"]')?.content === 'y' ? 'y' : 'z';
+const UP = /** @type {HTMLMetaElement | null} */ (document.querySelector('meta[name="kayviz-up"]'))?.content === 'y' ? 'y' : 'z';
 window.__up = UP;
 const UP_VEC = UP === 'z' ? new THREE.Vector3(0, 0, 1) : new THREE.Vector3(0, 1, 0);
 /** (x, y, z) written y-up -> the viewer's axes (identity when y is up). */
@@ -259,7 +260,7 @@ setBackgroundTheme(_savedBg === 'light' ? 'light' : 'dark');
 window.__setBackgroundTheme = setBackgroundTheme;
 
 // ── Studio toggle (next to the background button) ───────────────────────────
-const _studioButton = _bgButton.cloneNode();
+const _studioButton = /** @type {HTMLButtonElement} */ (_bgButton.cloneNode());
 _studioButton.style.left = '456px';
 _studioButton.textContent = '\uD83D\uDCA1';
 function setStudio(on) {
@@ -324,7 +325,7 @@ function savePicture({ background = 'viewer', scale = 2 } = {}) {
 }
 window.__savePicture = savePicture;
 
-const _saveButton = _bgButton.cloneNode();
+const _saveButton = /** @type {HTMLButtonElement} */ (_bgButton.cloneNode());
 _saveButton.style.left = '496px';
 _saveButton.textContent = '📷';
 _saveButton.title = 'Save picture';
@@ -333,7 +334,7 @@ _saveButton.setAttribute('aria-haspopup', 'true');
 // close the menu on Escape or a click elsewhere
 window.addEventListener('keydown', e => { if (e.key === 'Escape') _saveMenu.style.display = 'none'; });
 window.addEventListener('pointerdown', e => {
-  if (!_saveMenu.contains(e.target) && e.target !== _saveButton) _saveMenu.style.display = 'none';
+  if (!_saveMenu.contains(/** @type {Node} */ (e.target)) && e.target !== _saveButton) _saveMenu.style.display = 'none';
 });
 const _saveMenu = document.createElement('div');
 Object.assign(_saveMenu.style, {
@@ -342,7 +343,7 @@ Object.assign(_saveMenu.style, {
   font: '12px sans-serif', color: '#ddd', flexDirection: 'column', gap: '6px',
 });
 const _saveScale = document.createElement('select');
-for (const k of [1, 2]) _saveScale.add(new Option(`${k}× resolution`, k, k === 2, k === 2));
+for (const k of [1, 2]) _saveScale.add(new Option(`${k}× resolution`, String(k), k === 2, k === 2));
 _saveMenu.appendChild(_saveScale);
 for (const [bg, label] of [['viewer', 'Current background'], ['transparent', 'Empty background']]) {
   const b = document.createElement('button');
@@ -364,7 +365,7 @@ document.body.append(_saveButton, _saveMenu);
 // Scenes come in any unit (1e-3 to 1e3): nothing here assumes a size.
 function sceneBounds() {
   const box = new THREE.Box3();
-  scene.traverseVisible(o => {
+  scene.traverseVisible((/** @type {any} */ o) => {
     if (o === grid || o.isLight || o.userData.studioHelper) return;
     if ((o.isMesh || o.isLine || o.isLineSegments || o.isPoints) && o.geometry) {
       box.expandByObject(o);           // instanced points/arrows: all instances
@@ -436,13 +437,13 @@ document.addEventListener('viewer-changed', () => {
 // Keys: F frames the scene, R resets the view (not while typing in a field).
 window.addEventListener('keydown', e => {
   if (e.metaKey || e.ctrlKey || e.altKey) return;
-  const t = e.target;
+  const t = /** @type {HTMLElement | null} */ (e.target);
   if (t && (t.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(t.tagName))) return;
   if (e.key === 'f' || e.key === 'F') fitView();
   if (e.key === 'r' || e.key === 'R') fitView({ reset: true });
 });
 
-const _fitButton = _bgButton.cloneNode();
+const _fitButton = /** @type {HTMLButtonElement} */ (_bgButton.cloneNode());
 _fitButton.style.left = '536px';
 _fitButton.textContent = '\u2922';
 _fitButton.title = 'Fit the scene (F); reset the view (R)';
@@ -452,7 +453,7 @@ document.body.appendChild(_fitButton);
 
 // ── Benchmark (📊): frame times and memory of the current scene ──────────────
 window.__benchmarkJob = runBenchmarkJob;            // kv.benchmark() from Python
-const _benchButton = _bgButton.cloneNode();
+const _benchButton = /** @type {HTMLButtonElement} */ (_bgButton.cloneNode());
 _benchButton.style.left = '576px';
 _benchButton.textContent = '\uD83D\uDCCA';
 _benchButton.title = 'Benchmark: frame time and memory, plain and studio';
@@ -476,7 +477,7 @@ _benchPanel.innerHTML = `
     .kv-bench-note { margin-top: 6px; color: #888; max-width: 360px; white-space: normal; }
   </style>`;
 document.body.append(_benchButton, _benchPanel);
-dockable(_benchPanel, _benchPanel.firstElementChild, 'benchmark');
+dockable(_benchPanel, /** @type {HTMLElement} */ (_benchPanel.firstElementChild), 'benchmark');
 const _benchBody = _benchPanel.querySelector('[data-body]');
 const _runBench = () => {
   _benchBody.textContent = 'measuring…';

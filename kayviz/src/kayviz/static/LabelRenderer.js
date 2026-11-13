@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * LabelRenderer.js — 2D canvas overlay for index labels.
  *

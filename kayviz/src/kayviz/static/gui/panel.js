@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * panel.js — Base panel class.
  *

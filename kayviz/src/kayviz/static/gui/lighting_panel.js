@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * lighting_panel.js — Scene lighting controls.
  *
@@ -10,11 +11,11 @@ import GUI from 'lil-gui';
 export class LightingPanel {
   /**
    * @param {HTMLElement}            container  — element to embed the GUI into
-   * @param {THREE.AmbientLight}     ambient
-   * @param {THREE.DirectionalLight} keyLight
-   * @param {THREE.DirectionalLight} fillLight
-   * @param {THREE.Scene}            [scene]   — for the environment-map intensity
-   * @param {Studio}                 [studio]  — studio render mode (AO / shadow sliders)
+   * @param {import('three').AmbientLight}     ambient
+   * @param {import('three').DirectionalLight} keyLight
+   * @param {import('three').DirectionalLight} fillLight
+   * @param {import('three').Scene}            [scene]   - for the environment-map intensity
+   * @param {import('../lib/Studio.js').Studio} [studio]  - studio render mode (AO / shadow sliders)
    */
   constructor(container, ambient, keyLight, fillLight, scene = null, studio = null) {
     this.gui = new GUI({ container, title: 'Lighting' });

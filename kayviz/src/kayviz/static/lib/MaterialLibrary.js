@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * MaterialLibrary.js — Named material / shader registry.
  *
@@ -303,7 +304,7 @@ export class MaterialLibrary {
   applyTo(mesh, name, color, opacity) {
     const old = mesh.material;
     mesh.material = this.build(name, color, opacity);
-    if (old && old !== mesh.material) old.dispose();
+    if (old && old !== mesh.material) /** @type {THREE.Material} */ (old).dispose();
   }
 
   // ── Internals ─────────────────────────────────────────────────────────────

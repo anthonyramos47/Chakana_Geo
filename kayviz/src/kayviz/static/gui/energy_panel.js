@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * energy_panel.js — Live energy convergence plot.
  *
@@ -17,8 +18,8 @@ import { dockable } from './dock.js';
 
 export class EnergyPanel {
   /**
-   * @param {WSClient} ws       — WebSocket client; subscribes to onMessage
-   * @param {object}   [opts]   — { width, height, maxPoints, position }
+   * @param {import('../ws.js').WSClient} ws       — WebSocket client; subscribes to onMessage
+   * @param {object}   [opts]   - { width, height, maxPoints, position }
    *   position: 'bottom-right' (default) | 'bottom-left' | 'top-right' | 'top-left'
    */
   constructor(ws, opts = {}) {
@@ -36,7 +37,7 @@ export class EnergyPanel {
     this._ctx    = this._canvas.getContext('2d');
 
     document.body.appendChild(this._root);
-    dockable(this._root, this._root.firstElementChild, 'energy');   // header bar
+    dockable(this._root, /** @type {HTMLElement} */ (this._root.firstElementChild), 'energy');   // header bar
     // Shown once energies arrive: apps without an optimisation never see it.
     this._root.style.display = 'none';
 
