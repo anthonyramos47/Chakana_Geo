@@ -52,7 +52,7 @@ A process that registered its own apps always starts its own viewer (next free p
 
 ### kayviz runtime (`kayviz/src/kayviz/`)
 
-`import kayviz as kv` exposes the Polyscope-style API from `runtime/script.py`. The key design:
+`import kayviz as kv` exposes the Polyscope-style API from `runtime/script.py`, which holds the state and plumbing and re-exports the API from `runtime/register.py` (structures, quantities, remove/clear, export, origin), `view.py` (camera, up axis), `capture.py` (screenshots, benchmark, save_grid) and `lifecycle.py` (apps, show, kill_servers). Those modules reach shared names as `_s.name` (`from . import script as _s`) at call time: monkeypatching `script.X` and other modules reading `script._state` keep working. The key design:
 
 - **`kv.init()` modes** (`script._mode`): `"local"` — starts `server.BackgroundServer` (uvicorn in a daemon thread, first free port from `KAYVIZ_PORT`/8000); `"attached"` — a *shared* kayviz server answers `/api/script/ping` with `shared: true` (or `KAYVIZ_URL` is set), pushes go over HTTP; `"hosted"` — this process *is* a server, set by the `create_app` lifespan via `script._bind_loop`.
 - **Pushes in local/hosted mode never go over HTTP.** `_send()` runs `ScriptApp.push` on the server loop: `run_coroutine_threadsafe` from other threads, `loop.create_task` when already on the loop (async handlers run there — blocking would deadlock).
