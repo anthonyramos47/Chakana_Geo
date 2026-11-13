@@ -444,11 +444,12 @@ export class Viewer {
   }
 
   /** A parameterization (uv: 2 per vertex) shown as a checkerboard or a grid. */
-  addParameterization(parentName, key, uv, { style = 'checker', scale = 1.0 } = {}) {
+  addParameterization(parentName, key, uv, { style = 'checker', scale = 1.0,
+                                           definedOn = 'vertices' } = {}) {
     const e = this._objects.get(parentName);
     if (!e || e.type !== 'surface_mesh') return;
     if (e.children.has(key)) e.removeChild(key, this.scene, e.mesh);
-    const child = new ParamChild({ key, uv, style, scale });
+    const child = new ParamChild({ key, uv, style, scale, definedOn });
     e.addChild(child);
     child.apply(e.mesh, e);
     window.__invalidate?.();
@@ -751,7 +752,8 @@ export class Viewer {
         break;
       case 'parameterization_quantity':
         this.addParameterization(obj.target, obj.name, obj.uv,
-                                 { style: obj.style ?? 'checker', scale: obj.scale ?? 1 });
+                                 { style: obj.style ?? 'checker', scale: obj.scale ?? 1,
+                                   definedOn: obj.defined_on ?? 'vertices' });
         break;
       case 'scalar_quantity': {
         this.addScalarQuantity(obj.target, obj.name, obj.values,

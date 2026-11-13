@@ -113,6 +113,8 @@ def _track(objects) -> None:
                     tpf = o.get("tris_per_face")
                     info["n_faces"] = (len(tpf) if tpf is not None
                                        else len(o["faces"]) // max(1, o.get("face_size", 3)))
+                    # corners are known (in face order) when the faces went as given
+                    info["n_corners"] = None if tpf is not None else len(o["faces"])
                 elif kind == "point_cloud":
                     info["n_vertices"] = len(o["points"]) // 3
                 elif kind == "curve_network":
@@ -135,11 +137,17 @@ def _check_quantity(func: str, target: str, n_values: int, defined_on: str,
     if info["type"] not in allowed:
         raise ValueError(f"{func}: {target!r} is a {info['type']}; this quantity needs a "
                          f"{' or '.join(allowed)}")
-    need = {"faces": "surface_mesh", "edges": "curve_network"}.get(defined_on)
+    need = {"faces": "surface_mesh", "edges": "curve_network",
+            "corners": "surface_mesh"}.get(defined_on)
     if need and info["type"] != need:
         raise ValueError(f"{func}: defined_on={defined_on!r} needs a {need}; "
                          f"{target!r} is a {info['type']}")
-    expected = info.get({"faces": "n_faces", "edges": "n_edges"}.get(defined_on, "n_vertices"))
+    if defined_on == "corners" and info.get("n_corners", 0) is None:
+        raise ValueError(f"{func}: {target!r} has polygons kayviz triangulated (more than 4 "
+                         f"sides, or bent / non-convex quads); per-corner values need "
+                         f"triangles or quads, use defined_on='vertices'")
+    expected = info.get({"faces": "n_faces", "edges": "n_edges",
+                         "corners": "n_corners"}.get(defined_on, "n_vertices"))
     if expected is not None and n_values != expected:
         raise ValueError(f"{func}: {target!r} has {expected} {defined_on}, "
                          f"got {n_values} values")
@@ -272,12 +280,16 @@ def add_scalar_quantity(target: str, field_name: str, values,
 
 
 def add_parameterization_quantity(target: str, field_name: str, uv,
-                                  style: str = "checker", scale: float = 1.0) -> None:
+                                  style: str = "checker", scale: float = 1.0,
+                                  defined_on: str = "vertices") -> None:
     """Show a parameterization of the surface mesh *target*: uv, one (u, v) per
-    vertex, as a checkerboard ("checker") or grid lines ("grid"), *scale* cells per
-    unit of uv. Stretching, flips and seams show as distorted or broken cells."""
-    d = ser.parameterization_quantity(target, field_name, uv, style=style, scale=scale)
-    _check_quantity("add_parameterization_quantity", target, len(d["uv"]) // 2, "vertices",
+    vertex, or with defined_on="corners" one per face corner in face order (for
+    seams), as a checkerboard ("checker") or grid lines ("grid"), *scale* cells per
+    unit of uv. Stretching, flips and seams show as distorted or broken cells.
+    Corners work on triangle and quad meshes (faces kayviz did not triangulate)."""
+    d = ser.parameterization_quantity(target, field_name, uv, style=style, scale=scale,
+                                      defined_on=defined_on)
+    _check_quantity("add_parameterization_quantity", target, len(d["uv"]) // 2, defined_on,
                     ("surface_mesh",))
     _push(d)
 

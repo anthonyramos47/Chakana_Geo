@@ -126,6 +126,8 @@ def test_scalars_on_points_and_curves_are_checked():
         kv.register_point_cloud("P", np.zeros((4, 3)))
         kv.register_curve_network("C", np.zeros((5, 3)), [[0, 1], [1, 2], [3, 4]])
         kv.register_surface_mesh("M", np.eye(3), [[0, 1, 2]])
+        t = np.linspace(0, 2 * np.pi, 7)[:6]
+        kv.register_surface_mesh("H", np.c_[np.cos(t), np.sin(t), 0 * t], [list(range(6))])
         out = {}
         for label, call in [
             ("points", lambda: kv.add_scalar_quantity("P", "s", np.arange(4.0))),
@@ -138,6 +140,9 @@ def test_scalars_on_points_and_curves_are_checked():
             ("uv_ok", lambda: kv.add_parameterization_quantity("M", "uv", np.zeros((3, 2)))),
             ("uv_count", lambda: kv.add_parameterization_quantity("M", "uv", np.zeros((4, 2)))),
             ("uv_on_points", lambda: kv.add_parameterization_quantity("P", "uv", np.zeros((4, 2)))),
+            ("uv_corners", lambda: kv.add_parameterization_quantity("M", "c", np.zeros((3, 2)), defined_on="corners")),
+            ("uv_corners_count", lambda: kv.add_parameterization_quantity("M", "c", np.zeros((4, 2)), defined_on="corners")),
+            ("uv_corners_hex", lambda: kv.add_parameterization_quantity("H", "c", np.zeros((6, 2)), defined_on="corners")),
         ]:
             try:
                 call(); out[label] = "ok"
@@ -158,3 +163,5 @@ def test_scalars_on_points_and_curves_are_checked():
     assert "needs a curve_network" in out["edges_on_mesh"]
     assert out["uv_ok"] == "ok" and "has 3 vertices" in out["uv_count"]
     assert "is a point_cloud" in out["uv_on_points"]
+    assert out["uv_corners"] == "ok" and "has 3 corners" in out["uv_corners_count"]
+    assert "kayviz triangulated" in out["uv_corners_hex"]

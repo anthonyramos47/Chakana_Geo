@@ -107,7 +107,34 @@ export class VectorChild extends Child {
 
 // ── ScalarChild ───────────────────────────────────────────────────────────────
 
-/** Put back the indexed geometry a face scalar replaced (see ScalarChild.apply). */
+/**
+ * A non-indexed copy of the geometry (one vertex per triangle corner) is shown
+ * while any feature needs it: a face scalar (a colour per face), per-corner uv.
+ * Each asks with its reason; the indexed geometry comes back when none is left.
+ * Values per *vertex* are then expanded through the indexed geometry's index
+ * (vertexOf below).
+ */
+export function needNonIndexed(parentMesh, opts, reason) {
+  (opts._flatFor ??= new Set()).add(reason);
+  if (parentMesh.geometry.index !== null) {
+    opts._indexedGeo    = parentMesh.geometry;
+    parentMesh.geometry = parentMesh.geometry.toNonIndexed();
+    opts.nonIndexed     = true;
+  }
+}
+
+export function releaseNonIndexed(parentMesh, opts, reason) {
+  opts._flatFor?.delete(reason);
+  if (!opts._flatFor?.size) restoreIndexed(parentMesh, opts);
+}
+
+/** The mesh vertex shown at position k of the current geometry. */
+function vertexOf(opts) {
+  const idx = opts.nonIndexed ? opts._indexedGeo?.index?.array : null;
+  return idx ? k => idx[k] : k => k;
+}
+
+/** Put back the indexed geometry (see needNonIndexed). */
 function restoreIndexed(parentMesh, opts) {
   if (!opts._indexedGeo) return;
   const flat = parentMesh.geometry;
@@ -125,9 +152,10 @@ function restoreIndexed(parentMesh, opts) {
  * a shader patch replaces the surface colour. Unticked, the patch goes away.
  */
 export class ParamChild extends Child {
-  constructor({ key, uv, style = 'checker', scale = 1.0 }) {
+  constructor({ key, uv, definedOn = 'vertices', style = 'checker', scale = 1.0 }) {
     super(key, 'param');
-    this.uv    = uv;                // 2 per vertex
+    this.uv    = uv;                // 2 per vertex, or per polygon corner in face order
+    this.definedOn = definedOn;     // 'vertices' | 'corners' 
     this.style = style;             // 'checker' | 'grid'
     this.scale = scale;             // cells per unit of UV
     this._mesh = null;
@@ -135,12 +163,29 @@ export class ParamChild extends Child {
 
   apply(parentMesh, parentEntry) {
     this._mesh = parentMesh;
-    // the indexed geometry is the base; a face scalar shows a non-indexed copy of it
-    const base = parentEntry.opts._indexedGeo ?? parentMesh.geometry;
+    this._opts = parentEntry.opts;
+    const opts = parentEntry.opts, uv = this.uv;
+    if (this.definedOn === 'corners') {
+      // a uv per triangle corner: the faces as sent (triangles, or polygons the
+      // viewer fans from their first vertex: triangles (0, j+1, j+2))
+      needNonIndexed(parentMesh, opts, 'corner uv');
+      const m = opts.faceSize ?? 3, per = m - 2, n = parentMesh.geometry.attributes.position.count;
+      const out = new Float32Array(2 * n);
+      for (let k = 0; k < n; k++) {
+        const t = Math.floor(k / 3), c = k % 3, q = Math.floor(t / per), j = t % per;
+        const corner = q * m + (c === 0 ? 0 : j + c);
+        out[2*k] = uv[2*corner]; out[2*k + 1] = uv[2*corner + 1];
+      }
+      parentMesh.geometry.setAttribute('kvUV', new THREE.BufferAttribute(out, 2));
+      this._patch();
+      return;
+    }
+    // the indexed geometry is the base; a non-indexed copy may be shown
+    const base = opts._indexedGeo ?? parentMesh.geometry;
     this._base = base;
-    base.setAttribute('kvUV', new THREE.BufferAttribute(new Float32Array(this.uv), 2));
+    base.setAttribute('kvUV', new THREE.BufferAttribute(new Float32Array(uv), 2));
     if (parentMesh.geometry !== base) {
-      const idx = base.index.array, uv = this.uv, out = new Float32Array(idx.length * 2);
+      const idx = base.index.array, out = new Float32Array(idx.length * 2);
       for (let k = 0; k < idx.length; k++) { out[2*k] = uv[2*idx[k]]; out[2*k + 1] = uv[2*idx[k] + 1]; }
       parentMesh.geometry.setAttribute('kvUV', new THREE.BufferAttribute(out, 2));
     }
@@ -183,7 +228,8 @@ export class ParamChild extends Child {
     m.geometry.deleteAttribute('kvUV');
     this._base?.deleteAttribute('kvUV');
     setPatch(m.material, 'param', null);
-    this._mesh = this._base = null;
+    if (this.definedOn === 'corners') releaseNonIndexed(m, this._opts, 'corner uv');
+    this._mesh = this._base = this._opts = null;
   }
 }
 
@@ -223,31 +269,24 @@ export class ScalarChild extends Child {
       parentMesh.material.needsUpdate = true;
       return;
     }
-    if (this.definedOn === 'faces') {
-      if (parentMesh.geometry.index !== null) {
-        opts._indexedGeo    = parentMesh.geometry;
-        parentMesh.geometry = parentMesh.geometry.toNonIndexed();
-        opts.nonIndexed     = true;
-      }
-    } else {
-      restoreIndexed(parentMesh, opts);
-    }
+    if (this.definedOn === 'faces') needNonIndexed(parentMesh, opts, 'face scalar');
+    else releaseNonIndexed(parentMesh, opts, 'face scalar');
     const mc = parentMesh.material.color;    // none on normal/depth/shader materials
     if (this._priorMaterialColor === undefined) this._priorMaterialColor = mc ? [mc.r, mc.g, mc.b] : null;
     mc?.setRGB(1, 1, 1);                       // vertex colours are multiplied by it
     this._writeColors(parentMesh, opts);
     parentMesh.material.vertexColors = true;
     parentMesh.material.needsUpdate  = true;
-    if (this.isolines && this.definedOn === 'vertices') this._applyIsolines(parentMesh);
+    if (this.isolines && this.definedOn === 'vertices') this._applyIsolines(parentMesh, opts);
   }
 
   /** Lines where the scalar crosses multiples of the spacing: the raw value is a
    *  vertex attribute, interpolated per pixel; fwidth keeps the width in pixels. */
-  _applyIsolines(parentMesh) {
-    const geo = parentMesh.geometry, n = geo.attributes.position.count;
+  _applyIsolines(parentMesh, opts) {
+    const geo = parentMesh.geometry, n = geo.attributes.position.count, vertex = vertexOf(opts);
     const vals = new Float32Array(n);
     for (let i = 0; i < n; i++) {
-      const v = i < this.values.length ? this.values[i] : NaN;
+      const vi = vertex(i), v = vi < this.values.length ? this.values[vi] : NaN;
       vals[i] = Number.isFinite(v) ? v : 3e38;           // no line through NaN
     }
     geo.setAttribute('kvScalar', new THREE.BufferAttribute(vals, 1));
@@ -341,7 +380,8 @@ export class ScalarChild extends Child {
       }
       while (k < n) put(k++, NaN);
     } else {
-      for (let i = 0; i < n; i++) put(i, i < values.length ? values[i] : NaN);
+      const vertex = vertexOf(opts);           // a non-indexed copy (per-corner uv shown)
+      for (let i = 0; i < n; i++) { const vi = vertex(i); put(i, vi < values.length ? values[vi] : NaN); }
     }
     attr.needsUpdate = true;
   }
@@ -362,7 +402,7 @@ export class ScalarChild extends Child {
       setPatch(parentMesh.material, 'isolines', null);
       this._iso = null;
     }
-    if (this.definedOn === 'faces') restoreIndexed(parentMesh, parentEntry.opts);
+    if (this.definedOn === 'faces') releaseNonIndexed(parentMesh, parentEntry.opts, 'face scalar');
     if (this._priorMaterialColor) parentMesh.material.color?.setRGB(...this._priorMaterialColor);
     parentMesh.material.vertexColors = false;
     parentMesh.material.needsUpdate  = true;
