@@ -212,3 +212,19 @@ baseline, and an update of the docs (`docs/kayviz/` and `CLAUDE.md`).
 | P3-B instanced tubes | done: 200k edges 55 → 12 MB, inspect gets edge ids | `98d4f54` |
 | P3-C float64 recentring | done (kv.set_origin, automatic for far data) | `28e4e49` |
 | Phase 4 features, Phase 5 engineering | open; Phase 4 order is the owner's choice | — |
+
+### Phases 4-5 (2026-11-13)
+
+| item | result | commit |
+|---|---|---|
+| OBJ/PLY export (`kv.export`) | done: polygons as registered, PLY with scalars, far coordinates | `fa7f5ab` |
+| back colour (`back_color`) | done | `8279a1b` |
+| scalars on points and curves | done (`defined_on="edges"` for curves) | `80b8a45`, `d3e86cc` |
+| picking points and vectors | done | `7cba345` |
+| isolines (`isolines=True`) + combinable shader patches | done | `2a63085` |
+| screen-space wireframe (`show_wireframe=True`) | done (fat lines) | `1da0c60` |
+| parameterization checker | done, per-vertex uv (per-corner uv open) | `2c4d1bb` |
+| order-independent transparency | open: needs the frame offscreen (opaque depth) in plain and studio | — |
+| P5-A split `runtime/script.py` | open, owner's decision: module-global state and monkeypatched tests make a split a full refactor | — |
+| P5-B type checking (`npm run typecheck`) | done for 7 modules; main.js, ws.js, benchmark.js, Studio.js open | `d13314f` |
+| P5-C layout | checked at 1000x640 and 760x560: no overlaps; clipped panel titles fixed | `597ddb9` |
