@@ -41,6 +41,9 @@ export function dockable(root, handle, key) {
   pin.addEventListener('pointerdown', e => e.stopPropagation());
   handle.style.display ||= 'flex';
   handle.style.alignItems ||= 'center';
+  // one line: a long title wrapped inside the fixed-height bar and lost its first line
+  handle.style.whiteSpace = 'nowrap';
+  handle.style.overflow = 'hidden';
   // before the panel's own collapse toggle, if it has one
   handle.insertBefore(pin, handle.children.length ? handle.lastElementChild : null);
 
