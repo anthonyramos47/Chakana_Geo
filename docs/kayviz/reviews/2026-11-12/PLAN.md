@@ -223,8 +223,8 @@ baseline, and an update of the docs (`docs/kayviz/` and `CLAUDE.md`).
 | picking points and vectors | done | `7cba345` |
 | isolines (`isolines=True`) + combinable shader patches | done | `2a63085` |
 | screen-space wireframe (`show_wireframe=True`) | done (fat lines) | `1da0c60` |
-| parameterization checker | done, per-vertex uv (per-corner uv open) | `2c4d1bb` |
-| order-independent transparency | open: needs the frame offscreen (opaque depth) in plain and studio | — |
-| P5-A split `runtime/script.py` | open, owner's decision: module-global state and monkeypatched tests make a split a full refactor | — |
-| P5-B type checking (`npm run typecheck`) | done for 7 modules; main.js, ws.js, benchmark.js, Studio.js open | `d13314f` |
+| parameterization checker | done, per-vertex and per-corner uv (corners: triangle and quad meshes) | `2c4d1bb`, `6470632` |
+| order-independent transparency | done, opt-in (`kv.set_transparency("weighted")`), plain and studio | `09ba813` |
+| P5-A split `runtime/script.py` | done: state in script.py, API in register/view/capture/lifecycle, same 85 names | `061d2b0` |
+| P5-B type checking (`npm run typecheck`) | done, every frontend module | `d13314f`, `fe25971` |
 | P5-C layout | checked at 1000x640 and 760x560: no overlaps; clipped panel titles fixed | `597ddb9` |
