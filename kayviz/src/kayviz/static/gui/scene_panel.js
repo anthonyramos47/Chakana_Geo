@@ -103,7 +103,18 @@ export class ScenePanel {
       select.appendChild(opt);
     }
     select.addEventListener('change', e => this._viewer.setGlobalMaterial(/** @type {HTMLSelectElement} */ (e.target).value));
-    line.append(label, select);
+    // transparency: three's per-object sorting, or order-independent (lib/OIT.js)
+    const tsel = /** @type {HTMLSelectElement} */ (select.cloneNode(false));
+    tsel.title = 'Transparency: sorted per object, or weighted (order-independent: overlapping translucent shells)';
+    tsel.setAttribute('aria-label', 'Transparency');
+    for (const mode of ['sorted', 'weighted']) {
+      const opt = document.createElement('option');
+      opt.value = opt.text = mode;
+      opt.selected = mode === (window.__getTransparency?.() ?? 'sorted');
+      tsel.appendChild(opt);
+    }
+    tsel.addEventListener('change', () => window.__setTransparency?.(tsel.value));
+    line.append(label, select, tsel);
     return line;
   }
 

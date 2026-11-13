@@ -110,7 +110,16 @@ export class Studio {
     this.composer = new EffectComposer(renderer, target);
     this.composer.renderTarget1.samples = 0;
     this.composer.renderTarget1.depthBuffer = false;
-    this.composer.addPass(new RenderPass(scene, camera));
+    // the scene pass: three's own, or order-independent transparency (main.js sets
+    // this.oit), drawing into the same read buffer
+    const scenePass = new RenderPass(scene, camera);
+    const drawScene = scenePass.render.bind(scenePass);
+    /** @type {import('./OIT.js').WeightedOIT | null} */
+    this.oit = null;
+    scenePass.render = (r, writeBuffer, readBuffer, deltaTime, maskActive) =>
+      this.oit ? this.oit.render(scene, camera, readBuffer)
+               : drawScene(r, writeBuffer, readBuffer, deltaTime, maskActive);
+    this.composer.addPass(scenePass);
     this.gtao = new GTAOPass(scene, camera, 4, 4);
     this.gtao.output = GTAOPass.OUTPUT.Default;
     this.gtao.blendIntensity = this.params.ao;

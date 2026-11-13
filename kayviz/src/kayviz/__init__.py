@@ -57,6 +57,7 @@ from .runtime.script import (
     look_at,
     reset_camera,
     set_origin,
+    set_transparency,
     export,
     benchmark,
     DEFAULT_VIEWS,
@@ -91,7 +92,7 @@ __all__ = [
     "set_enabled", "remove", "clear", "push_objects",
     "set_user_callback", "register_app", "thread",
     "screenshot", "screenshot_views", "save_grid", "get_camera",
-    "kill_servers", "set_up_dir", "look_at", "reset_camera", "set_origin", "export", "benchmark",
+    "kill_servers", "set_up_dir", "look_at", "reset_camera", "set_origin", "set_transparency", "export", "benchmark",
     "DEFAULT_VIEWS", "FITTED_VIEWS", "TIGHT_VIEWS",
     # app framework
     "Scene", "GUIApp", "ScriptApp", "CallbackApp", "mount_all",

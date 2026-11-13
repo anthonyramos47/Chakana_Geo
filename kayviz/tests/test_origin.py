@@ -97,3 +97,13 @@ def test_look_at_and_get_camera_use_the_users_coordinates(monkeypatch):
                                                   "target": [0.0, 0.0, 0.0], "fov": 50})
     cam = script.get_camera()
     assert cam["position"] == [1010.0, 5.0, 0.0] and cam["target"] == [1000.0, 0.0, 0.0]
+
+
+def test_set_transparency_sends_a_view_message(monkeypatch):
+    from kayviz.runtime import script
+    sent = []
+    monkeypatch.setattr(script, "_view", sent.append)
+    script.set_transparency("weighted")
+    assert sent == [{"transparency": "weighted"}]
+    with pytest.raises(ValueError, match="sorted"):
+        script.set_transparency("depth peeling")

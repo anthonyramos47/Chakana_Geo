@@ -37,6 +37,17 @@ def look_at(position, target=(0.0, 0.0, 0.0)) -> None:
     _s._view({"camera": {"position": pos, "target": tgt}})
 
 
+def set_transparency(mode: str) -> None:
+    """How translucent meshes blend in the open tabs: "sorted" (default: three.js
+    draws them back to front, one depth per object) or "weighted" (order-
+    independent: right where translucent shells intersect or fold over
+    themselves). Also the "Transparency" selector in the scene panel; the tab
+    remembers it. Glass keeps its own rendering."""
+    if mode not in ("sorted", "weighted"):
+        raise ValueError(f"set_transparency: mode must be 'sorted' or 'weighted', got {mode!r}")
+    _s._view({"transparency": mode})
+
+
 def reset_camera() -> None:
     """Frame the whole scene in the open viewer tabs (as the R key does)."""
     _s._view({"fit": True})

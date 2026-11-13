@@ -404,6 +404,7 @@ from .register import (  # noqa: E402
 from .view import (  # noqa: E402
     set_up_dir,
     look_at,
+    set_transparency,
     reset_camera,
     _view,
 )

@@ -255,6 +255,13 @@ the triangles kayviz made); PLY is binary and carries the object's vertex and fa
 quantities as properties; coordinates are yours (any scene origin added back).
 `kayviz.exporter.write(path, obj, quantities)` does the same for serializer dicts.
 
+**Transparency.** `kv.set_transparency("weighted")` (or the "Transparency" selector next to
+the Shader) blends translucent meshes order-independently (weighted blended OIT): right where
+translucent shells intersect or fold over themselves, which three's per-object sorting
+(`"sorted"`, the default) gets wrong. It runs only while translucent meshes are in view, in plain
+and studio mode (about 3x the frame time of sorted; extra buffers at the canvas size), and the
+tab remembers the choice. Glass keeps its own rendering.
+
 **Far from the origin** (geo-referenced data: float32, the GPU's precision, keeps only ~0.5 m
 at 4.5e6). Positions are sent relative to a scene origin, subtracted in float64 first. The
 first positions of a scene decide it: their rounded centre when it is farther than

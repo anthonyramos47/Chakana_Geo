@@ -17,6 +17,7 @@ import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { LabelRenderer }  from './LabelRenderer.js';
 import { startScreenshotBridge } from './screenshot.js';
 import { Studio }         from './lib/Studio.js';
+import { WeightedOIT }     from './lib/OIT.js';
 import { benchmark, benchmarkTable, runBenchmarkJob } from './benchmark.js';
 import { dockable, bringToFront } from './gui/dock.js';
 
@@ -107,7 +108,21 @@ const studio = new Studio(renderer, scene, camera, { keyLight, ambient, grid, up
 window.__studio = studio;
 window.__lights.studio = studio;
 // One frame of the current mode; also used by the screenshot bridge.
-window.__renderFrame = () => studio.enabled ? studio.render() : renderer.render(scene, camera);
+// Transparency: 'sorted' (three's per-object order) or 'weighted' (order-independent,
+// lib/OIT.js; also used by the studio composer). Remembered per browser.
+const oit = new WeightedOIT(renderer);
+let _transparency = 'sorted';
+try { _transparency = localStorage.getItem('kayviz.transparency') === 'weighted' ? 'weighted' : 'sorted'; } catch (_) {}
+studio.oit = _transparency === 'weighted' ? oit : null;
+window.__setTransparency = mode => {
+  _transparency = mode === 'weighted' ? 'weighted' : 'sorted';
+  studio.oit = _transparency === 'weighted' ? oit : null;
+  try { localStorage.setItem('kayviz.transparency', _transparency); } catch (_) {}
+  window.__invalidate?.(2);
+};
+window.__getTransparency = () => _transparency;
+window.__renderFrame = () => studio.enabled ? studio.render()
+  : _transparency === 'weighted' ? oit.render(scene, camera, null) : renderer.render(scene, camera);
 
 // Exposed for the screenshot bridge (frontend/screenshot.js).
 window.__renderer = renderer;
@@ -500,6 +515,7 @@ _benchPanel.querySelector('[data-close]').addEventListener('click', () => {
 window.__applyView = (msg) => {
   if (msg.up && msg.up !== UP) { location.reload(); return; }
   if (msg.fit) fitView({ reset: true });
+  if (msg.transparency) window.__setTransparency(msg.transparency);
   if (msg.camera) {
     _fitted = true;
     controls.target.fromArray(msg.camera.target);
